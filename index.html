@@ -381,14 +381,14 @@
     <section class="view is-active" id="view-login" aria-labelledby="login-title">
       <header class="view-header">
         <h1 id="login-title">登录</h1>
-        <p>请输入飞书邮箱账号及密码。</p>
+        <p>请输入账号及密码。</p>
       </header>
 
       <div class="alert" id="login-alert" role="alert"></div>
 
       <form class="form" id="login-form" novalidate>
         <div class="field">
-          <label class="required" for="login-email">飞书邮箱号</label>
+          <label class="required" for="login-email">账号</label>
           <input id="login-email" name="email" type="email" autocomplete="username" inputmode="email" placeholder="name@company.com" required>
           <p class="field-error" id="login-email-error" role="alert" hidden></p>
         </div>
@@ -755,7 +755,7 @@
       clearFormErrors(event.currentTarget);
       setAlert('login-alert');
       let valid = true;
-      if (!email || !isEmail(email)) { setFieldError('login-email', email ? '请输入有效的邮箱格式。' : '请输入飞书邮箱号。'); valid = false; }
+      if (!email || !isEmail(email)) { setFieldError('login-email', email ? '请输入有效的账号格式。' : '请输入账号。'); valid = false; }
       if (!password) { setFieldError('login-password', '请输入密码。'); valid = false; }
       if (!valid) return;
 
