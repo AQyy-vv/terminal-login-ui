@@ -372,7 +372,7 @@
     <header class="topbar">
       <div>
         <h1>终端账号管理</h1>
-        <p class="subtitle">由多个管理员共同配置账号、权限与接入网站。</p>
+        <p class="subtitle">终端拥有者与管理员共同配置账号、权限和接入网站。</p>
       </div>
       <div class="topbar-actions">
         <span class="terminal-tag" id="current-admin">未登录</span>
@@ -384,7 +384,7 @@
 
     <section class="content">
       <div class="notice">
-        <strong>终端限制已启用：</strong>账号准入、密码哈希与接入网站白名单均由本机 API 保存。管理页不读取用户明文密码，初始密码仅在创建或重置后展示一次。
+        <strong>终端限制已启用：</strong>账号准入、密码哈希与接入网站白名单均由云函数 API 保存。管理页不读取用户明文密码，初始密码仅在创建或重置后展示一次。
       </div>
 
       <section class="stats" aria-label="账号概览">
@@ -420,6 +420,7 @@
             <tr>
               <th scope="col">账号</th>
               <th scope="col">账号持有人</th>
+              <th scope="col">权限角色</th>
               <th scope="col">登录权限</th>
               <th scope="col">密码阶段</th>
               <th scope="col">授权网站</th>
@@ -465,35 +466,6 @@
       </section>
 
       <section class="section-divider">
-        <div class="toolbar">
-          <div class="toolbar-copy">
-            <h2>管理员</h2>
-            <p class="helper">为共同管理人员分配角色，避免共享同一个管理密钥。</p>
-          </div>
-          <button class="btn btn-primary" id="open-admin-create" type="button">新增管理员</button>
-        </div>
-        <div class="list-tools">
-          <input class="list-search" id="admin-search" type="search" placeholder="搜索管理员姓名、邮箱或角色" aria-label="搜索管理员">
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">管理员</th>
-                <th scope="col">邮箱</th>
-                <th scope="col">角色</th>
-                <th scope="col">状态</th>
-                <th scope="col">最近登录</th>
-                <th scope="col">操作</th>
-              </tr>
-            </thead>
-            <tbody id="admin-rows"></tbody>
-          </table>
-        </div>
-        <div class="pager" id="admin-pager" aria-label="管理员分页"></div>
-      </section>
-
-      <section class="section-divider">
         <div class="toolbar-copy">
           <h2>操作审计</h2>
           <p class="helper">记录管理员登录、账号授权、启停、重置密码和角色调整。</p>
@@ -520,23 +492,23 @@
     </section>
   </main>
 
-  <!-- 管理员独立登录 -->
+  <!-- 终端拥有者或从账号列表中授权的管理员登录。 -->
   <dialog id="admin-key-dialog" aria-labelledby="admin-key-title">
     <header class="dialog-header">
-      <h2 id="admin-key-title">管理员登录</h2>
+      <h2 id="admin-key-title">终端管理登录</h2>
     </header>
     <form id="admin-key-form">
       <div class="dialog-body">
         <div class="field">
-          <label class="required" for="admin-email">管理员邮箱</label>
-          <input id="admin-email" type="email" autocomplete="username" placeholder="请输入已配置的管理员邮箱" required>
+          <label class="required" for="admin-email">管理账号</label>
+          <input id="admin-email" type="email" autocomplete="username" placeholder="请输入终端拥有者或管理员账号" required>
         </div>
         <div class="field" style="margin-top: 14px;">
           <label class="required" for="admin-key">密码</label>
           <input id="admin-key" type="password" autocomplete="current-password" placeholder="请输入管理员密码" required>
           <p class="field-error" id="admin-key-error" role="alert" hidden></p>
         </div>
-        <p class="helper" style="margin: 13px 0 0;">请使用云函数环境变量中配置的管理员邮箱和密码。</p>
+        <p class="helper" style="margin: 13px 0 0;">终端拥有者使用初始管理账号；管理员使用账号列表中的原账号和密码。</p>
       </div>
       <footer class="dialog-footer">
         <button class="btn btn-primary" id="admin-key-submit" type="submit">进入管理页</button>
@@ -639,35 +611,6 @@
       <footer class="dialog-footer">
         <button class="btn" type="button" data-close-dialog="client-access-dialog">取消</button>
         <button class="btn btn-primary" id="client-access-submit" type="submit">保存用户权限</button>
-      </footer>
-    </form>
-  </dialog>
-
-  <!-- 新增管理员 -->
-  <dialog id="admin-create-dialog" aria-labelledby="admin-create-title">
-    <header class="dialog-header">
-      <h2 id="admin-create-title">新增管理员</h2>
-      <button class="dialog-close" type="button" data-close-dialog="admin-create-dialog" aria-label="关闭">×</button>
-    </header>
-    <form id="admin-create-form" novalidate>
-      <div class="dialog-body form">
-        <div class="field">
-          <label class="required" for="new-admin-name">姓名</label>
-          <input id="new-admin-name" type="text" autocomplete="off" placeholder="例如：李四" required>
-        </div>
-        <div class="field">
-          <label class="required" for="new-admin-email">邮箱</label>
-          <input id="new-admin-email" type="email" autocomplete="off" placeholder="admin@company.com" required>
-        </div>
-        <div class="field">
-          <label class="required" for="new-admin-role">角色</label>
-          <select id="new-admin-role" required></select>
-          <p class="field-error" id="admin-create-error" role="alert" hidden></p>
-        </div>
-      </div>
-      <footer class="dialog-footer">
-        <button class="btn" type="button" data-close-dialog="admin-create-dialog">取消</button>
-        <button class="btn btn-primary" id="admin-create-submit" type="submit">创建并生成初始密码</button>
       </footer>
     </form>
   </dialog>

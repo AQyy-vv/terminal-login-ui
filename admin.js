@@ -6,10 +6,8 @@ const state = {
   token: sessionStorage.getItem('terminalAdminToken') || '',
   me: null,
   permissions: [],
-  roles: [],
   accounts: [],
   clients: [],
-  admins: [],
   auditLogs: [],
   pendingResetId: null,
   pendingAccessId: null,
@@ -22,7 +20,6 @@ const state = {
   listViews: {
     accounts: { query: '', page: 1 },
     clients: { query: '', page: 1 },
-    admins: { query: '', page: 1 },
     audits: { query: '', page: 1 }
   },
   currentCredential: null
@@ -55,7 +52,7 @@ function can(permission) {
 }
 
 function roleLabel(role) {
-  return state.roles.find(item => item.value === role)?.label || role;
+  return ({ owner: '终端拥有者', admin: '管理员', user: '用户' })[role] || '用户';
 }
 
 function matchesSearch(values, query) {
@@ -141,11 +138,13 @@ const adminApi = {
   },
   me() { return request('/admin/me'); },
   logout() { return request('/admin/logout', { method: 'POST' }); },
-  roles() { return request('/admin/roles'); },
   listAccounts() { return request('/admin/accounts'); },
   createAccount(email, owner) { return request('/admin/accounts', { method: 'POST', body: { email, owner } }); },
   setAccountEnabled(id, enabled) {
     return request(`/admin/accounts/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { enabled } });
+  },
+  setAccountRole(id, role) {
+    return request(`/admin/accounts/${encodeURIComponent(id)}/role`, { method: 'PATCH', body: { role } });
   },
   setAccountAccess(id, clientIds) {
     return request(`/admin/accounts/${encodeURIComponent(id)}/access`, { method: 'PATCH', body: { clientIds } });
@@ -156,15 +155,6 @@ const adminApi = {
   setClientEnabled(id, enabled) {
     return request(`/admin/clients/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { enabled } });
   },
-  listAdmins() { return request('/admin/admins'); },
-  createAdmin(payload) { return request('/admin/admins', { method: 'POST', body: payload }); },
-  setAdminEnabled(id, enabled) {
-    return request(`/admin/admins/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { enabled } });
-  },
-  setAdminRole(id, role) {
-    return request(`/admin/admins/${encodeURIComponent(id)}/role`, { method: 'PATCH', body: { role } });
-  },
-  resetAdminPassword(id) { return request(`/admin/admins/${encodeURIComponent(id)}/reset`, { method: 'POST' }); },
   changeMyPassword(currentPassword, newPassword) {
     return request('/admin/password/change', { method: 'POST', body: { currentPassword, newPassword } });
   },
@@ -185,19 +175,26 @@ function accountHasClientAccess(account, clientId) {
 
 function renderAccounts() {
   const writable = can('accounts:write');
+  const roleWritable = can('admins:write');
   $('#open-create').disabled = !writable;
   $('#stat-total').textContent = state.accounts.length;
   $('#stat-enabled').textContent = state.accounts.filter(account => account.enabled).length;
   $('#stat-initial').textContent = state.accounts.filter(account => account.passwordMode === 'initial').length;
 
   const filtered = state.accounts.filter(account => matchesSearch([
-    account.email, account.owner, account.enabled ? '允许登录' : '已停用', accountAccessLabel(account)
+    account.email, account.owner, roleLabel(account.role), account.enabled ? '允许登录' : '已停用', accountAccessLabel(account)
   ], state.listViews.accounts.query));
   const pageInfo = paginate(filtered, state.listViews.accounts);
   $('#account-rows').innerHTML = pageInfo.items.length ? pageInfo.items.map(account => `
     <tr>
       <td><strong>${escapeHtml(account.email)}</strong></td>
       <td>${escapeHtml(account.owner || '—')}</td>
+      <td>
+        <select data-account-role="${escapeHtml(account.id)}" aria-label="${escapeHtml(account.owner || account.email)}的权限角色" ${roleWritable ? '' : 'disabled'}>
+          <option value="user" ${account.role !== 'admin' ? 'selected' : ''}>用户</option>
+          <option value="admin" ${account.role === 'admin' ? 'selected' : ''}>管理员</option>
+        </select>
+      </td>
       <td><span class="status-tag ${account.enabled ? 'status-enabled' : 'status-disabled'}">${account.enabled ? '允许登录' : '已停用'}</span></td>
       <td><span class="status-tag ${account.passwordMode === 'initial' ? 'status-initial' : 'status-changed'}">${account.passwordMode === 'initial' ? '首次随机密码' : '用户已修改'}</span></td>
       <td>${escapeHtml(accountAccessLabel(account))}</td>
@@ -205,13 +202,13 @@ function renderAccounts() {
       <td>${escapeHtml(formatDate(account.lastLoginAt))}</td>
       <td>
         <div class="actions">
-          ${writable ? `
+          ${writable && (account.role !== 'admin' || state.me.role === 'owner') ? `
             <button class="btn btn-small" type="button" data-access-account="${escapeHtml(account.id)}">授权网站</button>
             <button class="btn btn-small" type="button" data-toggle-account="${escapeHtml(account.id)}" data-next-enabled="${String(!account.enabled)}">${account.enabled ? '停用' : '启用'}</button>
             <button class="btn btn-small" type="button" data-reset-account="${escapeHtml(account.id)}">重置密码</button>` : '<span class="meta">只读</span>'}
         </div>
       </td>
-    </tr>`).join('') : `<tr><td colspan="8"><div class="empty">${state.accounts.length ? '没有匹配的账号。' : '暂无可登录账号。'}</div></td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="9"><div class="empty">${state.accounts.length ? '没有匹配的账号。' : '暂无可登录账号。'}</div></td></tr>`;
   renderPager('#account-pager', 'accounts', pageInfo);
 }
 
@@ -237,35 +234,6 @@ function renderClients() {
       </div></td>
     </tr>`).join('') : `<tr><td colspan="6"><div class="empty">${state.clients.length ? '没有匹配的接入网站。' : '暂无接入网站。'}</div></td></tr>`;
   renderPager('#client-pager', 'clients', pageInfo);
-}
-
-function renderAdmins() {
-  const writable = can('admins:write');
-  $('#open-admin-create').disabled = !writable;
-  const filtered = state.admins.filter(admin => matchesSearch([
-    admin.name, admin.email, roleLabel(admin.role), admin.enabled ? '正常' : '已停用'
-  ], state.listViews.admins.query));
-  const pageInfo = paginate(filtered, state.listViews.admins);
-  $('#admin-rows').innerHTML = pageInfo.items.length ? pageInfo.items.map(admin => `
-    <tr>
-      <td><strong>${escapeHtml(admin.name)}</strong>${admin.id === state.me?.id ? '（当前）' : ''}</td>
-      <td>${escapeHtml(admin.email)}</td>
-      <td>
-        <select data-admin-role="${escapeHtml(admin.id)}" aria-label="${escapeHtml(admin.name)}的角色" ${writable ? '' : 'disabled'}>
-          ${state.roles.map(role => `<option value="${escapeHtml(role.value)}" ${role.value === admin.role ? 'selected' : ''}>${escapeHtml(role.label)}</option>`).join('')}
-        </select>
-      </td>
-      <td><span class="status-tag ${admin.enabled ? 'status-enabled' : 'status-disabled'}">${admin.enabled ? '正常' : '已停用'}</span></td>
-      <td>${escapeHtml(formatDate(admin.lastLoginAt))}</td>
-      <td>
-        <div class="actions">
-          ${writable ? `
-            <button class="btn btn-small" type="button" data-toggle-admin="${escapeHtml(admin.id)}" data-next-enabled="${String(!admin.enabled)}">${admin.enabled ? '停用' : '启用'}</button>
-            <button class="btn btn-small" type="button" data-reset-admin="${escapeHtml(admin.id)}">重置密码</button>` : '<span class="meta">只读</span>'}
-        </div>
-      </td>
-    </tr>`).join('') : `<tr><td colspan="6"><div class="empty">${state.admins.length ? '没有匹配的管理员。' : '暂无管理员。'}</div></td></tr>`;
-  renderPager('#admin-pager', 'admins', pageInfo);
 }
 
 function renderAuditLogs() {
@@ -309,11 +277,14 @@ function renderClientAccessOptions() {
     account.email, account.owner, account.enabled ? '允许登录' : '已停用'
   ], state.clientAccessView.query));
   const pageInfo = paginate(filtered, state.clientAccessView, DIALOG_PAGE_SIZE);
-  $('#client-access-options').innerHTML = pageInfo.items.length ? pageInfo.items.map(account => `
+  $('#client-access-options').innerHTML = pageInfo.items.length ? pageInfo.items.map(account => {
+    const manageable = account.role !== 'admin' || state.me.role === 'owner';
+    return `
     <label class="check-item">
-      <input type="checkbox" name="account-client-access" value="${escapeHtml(account.id)}" ${state.clientAccessSelection.has(account.id) ? 'checked' : ''}>
-      <span><strong>${escapeHtml(account.owner || '未填写持有人')}</strong><br><span class="meta">${escapeHtml(account.email)}${(account.allowedClientIds || []).includes('*') ? ' · 当前授权全部网站' : ''}${account.enabled ? '' : ' · 账号已停用'}</span></span>
-    </label>`).join('') : '<div class="empty">没有匹配的账号。</div>';
+      <input type="checkbox" name="account-client-access" value="${escapeHtml(account.id)}" ${state.clientAccessSelection.has(account.id) ? 'checked' : ''} ${manageable ? '' : 'disabled'}>
+      <span><strong>${escapeHtml(account.owner || '未填写持有人')}</strong><br><span class="meta">${escapeHtml(account.email)} · ${escapeHtml(roleLabel(account.role))}${(account.allowedClientIds || []).includes('*') ? ' · 当前授权全部网站' : ''}${account.enabled ? '' : ' · 账号已停用'}${manageable ? '' : ' · 仅终端拥有者可修改'}</span></span>
+    </label>`;
+  }).join('') : '<div class="empty">没有匹配的账号。</div>';
   renderPager('#client-access-pager', 'client-access', pageInfo);
 }
 
@@ -321,20 +292,17 @@ function renderAll() {
   $('#current-admin').textContent = `${state.me.name} · ${roleLabel(state.me.role)}`;
   renderAccounts();
   renderClients();
-  renderAdmins();
   renderAuditLogs();
 }
 
 async function refreshAll() {
-  const [meResult, roleResult, accountResult, clientResult, adminResult, auditResult] = await Promise.all([
-    adminApi.me(), adminApi.roles(), adminApi.listAccounts(), adminApi.listClients(), adminApi.listAdmins(), adminApi.auditLogs()
+  const [meResult, accountResult, clientResult, auditResult] = await Promise.all([
+    adminApi.me(), adminApi.listAccounts(), adminApi.listClients(), adminApi.auditLogs()
   ]);
   state.me = meResult.admin;
   state.permissions = meResult.permissions;
-  state.roles = roleResult.roles;
   state.accounts = accountResult.accounts;
   state.clients = clientResult.clients;
-  state.admins = adminResult.admins;
   state.auditLogs = auditResult.logs;
   renderAll();
 }
@@ -342,7 +310,6 @@ async function refreshAll() {
 [
   ['#account-search', state.listViews.accounts, renderAccounts],
   ['#client-search', state.listViews.clients, renderClients],
-  ['#admin-search', state.listViews.admins, renderAdmins],
   ['#audit-search', state.listViews.audits, renderAuditLogs]
 ].forEach(([selector, view, renderer]) => {
   $(selector).addEventListener('input', event => {
@@ -357,7 +324,6 @@ function goToPage(target, page) {
   const routes = {
     accounts: [state.listViews.accounts, renderAccounts],
     clients: [state.listViews.clients, renderClients],
-    admins: [state.listViews.admins, renderAdmins],
     audits: [state.listViews.audits, renderAuditLogs],
     access: [state.accessView, renderAccessOptions],
     'client-access': [state.clientAccessView, renderClientAccessOptions]
@@ -486,6 +452,20 @@ $('#create-form').addEventListener('submit', async event => {
     emailError.hidden = false;
   } finally {
     setButtonLoading(button, false, '');
+  }
+});
+
+$('#account-rows').addEventListener('change', async event => {
+  const select = event.target.closest('[data-account-role]');
+  if (!select) return;
+  select.disabled = true;
+  try {
+    await adminApi.setAccountRole(select.dataset.accountRole, select.value);
+    await refreshAll();
+    showToast(select.value === 'admin' ? '该账号已设为管理员' : '该账号已恢复为普通用户');
+  } catch (error) {
+    showToast(error.message);
+    await refreshAll().catch(() => null);
   }
 });
 
@@ -704,84 +684,6 @@ $('#client-access-form').addEventListener('submit', async event => {
     await refreshAll().catch(() => null);
   } finally {
     setButtonLoading(button, false, '');
-  }
-});
-
-$('#open-admin-create').addEventListener('click', () => {
-  if (!can('admins:write')) return;
-  $('#admin-create-form').reset();
-  $('#admin-create-error').hidden = true;
-  $('#new-admin-role').innerHTML = state.roles.map(role => `<option value="${escapeHtml(role.value)}">${escapeHtml(role.label)}</option>`).join('');
-  $('#admin-create-dialog').showModal();
-});
-
-$('#admin-create-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  const payload = {
-    name: $('#new-admin-name').value.trim(),
-    email: $('#new-admin-email').value.trim(),
-    role: $('#new-admin-role').value
-  };
-  const error = $('#admin-create-error');
-  error.hidden = true;
-  if (!payload.name || !isEmail(payload.email) || !payload.role) {
-    error.textContent = '请填写姓名、有效邮箱并选择角色。';
-    error.hidden = false;
-    return;
-  }
-  const button = $('#admin-create-submit');
-  setButtonLoading(button, true, '正在创建');
-  try {
-    const result = await adminApi.createAdmin(payload);
-    $('#admin-create-dialog').close();
-    await refreshAll();
-    showCredential(result.admin.email, result.initialPassword, '管理员初始密码已生成');
-  } catch (requestError) {
-    error.textContent = requestError.message;
-    error.hidden = false;
-  } finally {
-    setButtonLoading(button, false, '');
-  }
-});
-
-$('#admin-rows').addEventListener('change', async event => {
-  const select = event.target.closest('[data-admin-role]');
-  if (!select) return;
-  select.disabled = true;
-  try {
-    await adminApi.setAdminRole(select.dataset.adminRole, select.value);
-    await refreshAll();
-    showToast('管理员角色已更新');
-  } catch (error) {
-    showToast(error.message);
-    await refreshAll().catch(() => null);
-  }
-});
-
-$('#admin-rows').addEventListener('click', async event => {
-  const toggle = event.target.closest('[data-toggle-admin]');
-  if (toggle) {
-    toggle.disabled = true;
-    try {
-      await adminApi.setAdminEnabled(toggle.dataset.toggleAdmin, toggle.dataset.nextEnabled === 'true');
-      await refreshAll();
-      showToast('管理员状态已更新');
-    } catch (error) {
-      toggle.disabled = false;
-      showToast(error.message);
-    }
-    return;
-  }
-  const reset = event.target.closest('[data-reset-admin]');
-  if (!reset) return;
-  reset.disabled = true;
-  try {
-    const result = await adminApi.resetAdminPassword(reset.dataset.resetAdmin);
-    await refreshAll();
-    showCredential(result.admin.email, result.initialPassword, '管理员密码已重置');
-  } catch (error) {
-    reset.disabled = false;
-    showToast(error.message);
   }
 });
 
