@@ -1,0 +1,948 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录｜通用登录网关</title>
+  <script>
+    if (new URLSearchParams(location.search).get('embed') === '1') document.documentElement.classList.add('is-embedded');
+  </script>
+  <style>
+    /* 登录页是可独立打开、也可被 SDK 嵌入的小卡片。 */
+    :root {
+      --page: #ededed;
+      --surface: #ffffff;
+      --surface-2: #f5f5f5;
+      --text: #161616;
+      --muted: #666666;
+      --line: #a3a3a3;
+      --line-light: #d5d5d5;
+      --primary: #303030;
+      --primary-hover: #161616;
+      --danger: #8d1e1e;
+      --success: #2e623a;
+      --shadow: 0 12px 38px rgba(0, 0, 0, 0.16);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { min-width: 320px; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background: var(--page);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-size: 15px;
+      line-height: 1.55;
+    }
+
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+
+    button:focus-visible,
+    input:focus-visible,
+    a:focus-visible {
+      outline: 3px solid rgba(48, 48, 48, 0.22);
+      outline-offset: 2px;
+    }
+
+    .page {
+      width: min(430px, calc(100% - 32px));
+      margin: clamp(32px, 9vh, 76px) auto 40px;
+      padding: 30px;
+      background: var(--surface);
+      border: 1px solid var(--line-light);
+      box-shadow: var(--shadow);
+    }
+
+    .is-embedded body { min-height: 0; background: transparent; }
+    .is-embedded .page {
+      width: 100%;
+      margin: 0;
+      padding: 30px;
+      border: 0;
+      box-shadow: none;
+    }
+
+    .view { display: none; }
+    .view.is-active { display: block; }
+
+    .view-header { margin-bottom: 28px; }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1, h2 {
+      margin-bottom: 6px;
+      font-size: 26px;
+      line-height: 1.35;
+      font-weight: 700;
+    }
+
+    h3 { margin-bottom: 4px; font-size: 15px; }
+
+    .view-header p,
+    .helper,
+    .field-hint,
+    .meta,
+    .app-url { color: var(--muted); }
+
+    .view-header p { margin-bottom: 0; }
+
+    .form { display: grid; gap: 20px; }
+
+    .field { display: grid; gap: 7px; }
+
+    label { font-weight: 650; }
+    .required::after { content: " *"; color: var(--danger); }
+
+    input {
+      width: 100%;
+      min-height: 47px;
+      padding: 10px 12px;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 0;
+    }
+
+    input:hover { border-color: var(--primary); }
+    input[readonly] { color: var(--muted); background: var(--surface-2); }
+    input[aria-invalid="true"] { border-color: var(--danger); }
+
+    .input-wrap { position: relative; }
+    .input-wrap input { padding-right: 66px; }
+
+    .input-action {
+      position: absolute;
+      top: 50%;
+      right: 6px;
+      transform: translateY(-50%);
+      padding: 7px 8px;
+      color: var(--muted);
+      background: transparent;
+      border: 0;
+    }
+
+    .field-hint, .field-error { margin: 0; font-size: 12px; }
+    .field-error { color: var(--danger); }
+
+    .btn {
+      min-height: 43px;
+      padding: 9px 16px;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 0;
+      text-align: center;
+      text-decoration: none;
+    }
+
+    .btn:hover { background: var(--surface-2); border-color: var(--primary); }
+    .btn:disabled { cursor: not-allowed; opacity: 0.58; }
+
+    .btn-primary {
+      color: #ffffff;
+      background: var(--primary);
+      border-color: var(--primary);
+    }
+
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-block { width: 100%; }
+
+    .btn-link {
+      min-height: 38px;
+      padding-inline: 6px;
+      background: transparent;
+      border-color: transparent;
+    }
+
+    .btn-link:hover { background: transparent; text-decoration: underline; }
+
+    .secondary-actions {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      margin-top: 4px;
+    }
+
+    .button-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .back-link {
+      margin: 0 0 22px;
+      padding: 0;
+      color: var(--muted);
+      background: transparent;
+      border: 0;
+    }
+
+    .back-link:hover { color: var(--text); text-decoration: underline; }
+
+    .alert {
+      display: none;
+      margin-bottom: 18px;
+      padding: 11px 13px;
+      color: var(--danger);
+      background: var(--surface);
+      border: 1px solid currentColor;
+    }
+
+    .alert.is-visible { display: block; }
+    .alert.success { color: var(--success); }
+
+    .password-rules {
+      margin: -7px 0 0;
+      padding-left: 19px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .success-mark {
+      width: 52px;
+      height: 52px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 19px;
+      border: 2px solid var(--primary);
+      border-radius: 50%;
+      font-size: 24px;
+    }
+
+    .account-strip {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      margin: 22px 0 26px;
+      padding: 12px 0;
+      border-top: 1px solid var(--line-light);
+      border-bottom: 1px solid var(--line-light);
+    }
+
+    .account-strip p { margin: 0; }
+    .meta, .app-url { font-size: 12px; }
+
+    .app-list {
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 10px;
+      list-style: none;
+    }
+
+    .app-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 14px;
+      padding: 13px;
+      background: var(--surface-2);
+      border: 1px solid var(--line-light);
+    }
+
+    .app-item p { margin: 0; }
+    .app-url { overflow-wrap: anywhere; }
+
+    .sync-list { display: grid; margin-top: 16px; }
+
+    .sync-line {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-top: 1px solid var(--line-light);
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      flex: 0 0 10px;
+      background: var(--success);
+      border-radius: 50%;
+    }
+
+    .modal-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.42);
+    }
+
+    .modal-layer.is-open { display: flex; }
+
+    .modal {
+      width: min(100%, 460px);
+      max-height: calc(100vh - 40px);
+      overflow: auto;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+
+    .modal-header,
+    .modal-body,
+    .modal-footer { padding: 18px 20px; }
+
+    .modal-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      border-bottom: 1px solid var(--line-light);
+    }
+
+    .modal-header h2 { margin: 0; font-size: 20px; }
+
+    .modal-close {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      margin: -7px -7px -7px 0;
+      padding: 0;
+      background: transparent;
+      border: 0;
+      font-size: 23px;
+    }
+
+    .modal-body p:last-child { margin-bottom: 0; }
+
+    .modal-url {
+      padding: 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--line-light);
+      overflow-wrap: anywhere;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      border-top: 1px solid var(--line-light);
+    }
+
+    .toast-region {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 30;
+      width: min(350px, calc(100% - 40px));
+      pointer-events: none;
+    }
+
+    .toast {
+      padding: 12px 14px;
+      color: #ffffff;
+      background: var(--primary);
+      box-shadow: var(--shadow);
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      margin-right: 7px;
+      vertical-align: -2px;
+      border: 2px solid rgba(255, 255, 255, 0.36);
+      border-top-color: #ffffff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+    }
+
+    @media (max-width: 520px) {
+      .page { width: calc(100% - 20px); margin-top: 20px; padding: 24px; }
+      .is-embedded .page { width: 100%; margin: 0; padding: 24px; }
+      .account-strip { align-items: flex-start; flex-direction: column; }
+      .app-item { grid-template-columns: 1fr; }
+      .app-item .btn { width: 100%; }
+      .modal-footer { flex-direction: column-reverse; }
+      .modal-footer .btn { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page" aria-live="polite">
+    <!-- 最终登录首屏：只保留用户截图选中的内容。 -->
+    <section class="view is-active" id="view-login" aria-labelledby="login-title">
+      <header class="view-header">
+        <h1 id="login-title">登录</h1>
+        <p>请输入飞书邮箱账号及密码。</p>
+      </header>
+
+      <div class="alert" id="login-alert" role="alert"></div>
+
+      <form class="form" id="login-form" novalidate>
+        <div class="field">
+          <label class="required" for="login-email">飞书邮箱号</label>
+          <input id="login-email" name="email" type="email" autocomplete="username" inputmode="email" placeholder="name@company.com" required>
+          <p class="field-error" id="login-email-error" role="alert" hidden></p>
+        </div>
+
+        <div class="field">
+          <label class="required" for="login-password">密码</label>
+          <div class="input-wrap">
+            <input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required>
+            <button class="input-action" type="button" data-toggle-password="login-password" aria-label="显示密码">显示</button>
+          </div>
+          <p class="field-error" id="login-password-error" role="alert" hidden></p>
+        </div>
+
+        <button class="btn btn-primary btn-block" id="login-submit" type="submit">登录</button>
+
+        <div class="secondary-actions">
+          <button class="btn btn-link" type="button" data-route="forgot">忘记密码</button>
+          <button class="btn btn-link" type="button" data-route="change-password">修改密码</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- 成功页仍保留多网址触达能力。 -->
+    <section class="view" id="view-success" aria-labelledby="success-title">
+      <div class="success-mark" aria-hidden="true">✓</div>
+      <header class="view-header">
+        <h2 id="success-title">登录成功</h2>
+        <p>请选择要访问的业务系统。</p>
+      </header>
+
+      <div class="account-strip">
+        <div>
+          <p><strong id="success-email">—</strong></p>
+          <p class="meta">当前登录账号</p>
+        </div>
+        <div>
+          <p id="success-time">—</p>
+          <p class="meta">登录时间</p>
+        </div>
+      </div>
+
+      <div id="mounted-apps" aria-label="已挂载网址"></div>
+
+      <div class="button-row" style="margin-top: 24px;">
+        <button class="btn" type="button" data-route="change-password">修改密码</button>
+        <button class="btn btn-link" id="logout-button" type="button">退出登录</button>
+      </div>
+    </section>
+
+    <!-- 忘记密码页 -->
+    <section class="view" id="view-forgot" aria-labelledby="forgot-title">
+      <button class="back-link" type="button" data-route="login">← 返回登录</button>
+      <header class="view-header">
+        <h2 id="forgot-title">忘记密码</h2>
+        <p>验证飞书邮箱后，系统将发送密码重置邮件。</p>
+      </header>
+
+      <div class="alert" id="forgot-alert" role="alert"></div>
+
+      <form class="form" id="forgot-form" novalidate>
+        <div class="field">
+          <label class="required" for="forgot-email">飞书邮箱号</label>
+          <input id="forgot-email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="name@company.com" required>
+          <p class="field-hint">重置链接仅发送至该飞书邮箱。</p>
+          <p class="field-error" id="forgot-email-error" role="alert" hidden></p>
+        </div>
+        <button class="btn btn-primary btn-block" id="forgot-submit" type="submit">发送重置邮件</button>
+      </form>
+    </section>
+
+    <!-- 修改密码页：未登录用户需同时填写账号；已登录用户自动带出账号。 -->
+    <section class="view" id="view-change-password" aria-labelledby="change-title">
+      <button class="back-link" type="button" data-back-from-change>← 返回</button>
+      <header class="view-header">
+        <h2 id="change-title">修改密码</h2>
+        <p>修改成功后，新密码将自动写入终端账号库。</p>
+      </header>
+
+      <div class="alert" id="change-alert" role="alert"></div>
+
+      <form class="form" id="change-form" novalidate>
+        <div class="field">
+          <label class="required" for="change-email">飞书邮箱号</label>
+          <input id="change-email" name="email" type="email" autocomplete="username" inputmode="email" placeholder="name@company.com" required>
+          <p class="field-error" id="change-email-error" role="alert" hidden></p>
+        </div>
+
+        <div class="field">
+          <label class="required" for="current-password">原密码</label>
+          <div class="input-wrap">
+            <input id="current-password" name="currentPassword" type="password" autocomplete="current-password" placeholder="请输入原密码" required>
+            <button class="input-action" type="button" data-toggle-password="current-password" aria-label="显示原密码">显示</button>
+          </div>
+          <p class="field-error" id="current-password-error" role="alert" hidden></p>
+        </div>
+
+        <div class="field">
+          <label class="required" for="new-password">新密码</label>
+          <div class="input-wrap">
+            <input id="new-password" name="newPassword" type="password" autocomplete="new-password" placeholder="请输入新密码" required>
+            <button class="input-action" type="button" data-toggle-password="new-password" aria-label="显示新密码">显示</button>
+          </div>
+          <ul class="password-rules">
+            <li>至少 8 位</li>
+            <li>同时包含字母与数字</li>
+            <li>不能与原密码相同</li>
+          </ul>
+          <p class="field-error" id="new-password-error" role="alert" hidden></p>
+        </div>
+
+        <div class="field">
+          <label class="required" for="confirm-password">确认新密码</label>
+          <div class="input-wrap">
+            <input id="confirm-password" name="confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码" required>
+            <button class="input-action" type="button" data-toggle-password="confirm-password" aria-label="显示确认密码">显示</button>
+          </div>
+          <p class="field-error" id="confirm-password-error" role="alert" hidden></p>
+        </div>
+
+        <button class="btn btn-primary btn-block" id="change-submit" type="submit">确认修改</button>
+      </form>
+    </section>
+  </main>
+
+  <div class="modal-layer" id="modal-layer" aria-hidden="true">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-description">
+      <header class="modal-header">
+        <h2 id="modal-title">提示</h2>
+        <button class="modal-close" id="modal-close" type="button" aria-label="关闭弹窗">×</button>
+      </header>
+      <div class="modal-body" id="modal-description"></div>
+      <footer class="modal-footer" id="modal-actions"></footer>
+    </section>
+  </div>
+
+  <div class="toast-region" id="toast-region" aria-live="polite"></div>
+
+  <script>
+    'use strict';
+
+    /* 所有身份判断都交给本机 API，嵌入方无法在前端绕过终端白名单。 */
+    const CONFIG = {
+      // 页面在 GitHub Pages，身份判断和数据读写仍全部交给腾讯云函数。
+      API_BASE_URL: 'https://1447704904-cwscdb1mvx.ap-guangzhou.tencentscf.com/api',
+      FEISHU_MAIL_URL: 'https://mail.feishu.cn/',
+      MOUNTED_APPS: [
+        { name: 'OA 工作台', url: 'https://oa.example.com/home' },
+        { name: '数据分析平台', url: 'https://data.example.com/dashboard' },
+        { name: '内容管理后台', url: 'https://cms.example.com/' }
+      ]
+    };
+
+    const state = {
+      currentUser: null,
+      lastRouteBeforeChange: 'login',
+      modalConfirm: null,
+      lastFocusedElement: null
+    };
+
+    const $ = (selector, root = document) => root.querySelector(selector);
+    const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+
+    const api = {
+      async login(payload) {
+        return request('/auth/login', { method: 'POST', body: payload });
+      },
+
+      async sendResetEmail(payload) {
+        return request('/auth/password/forgot', { method: 'POST', body: payload });
+      },
+
+      async changePassword(payload) {
+        return request('/auth/password/change', { method: 'POST', body: payload });
+      },
+
+      async logout() {
+        return request('/auth/logout', { method: 'POST' });
+      }
+    };
+
+    async function request(path, options = {}) {
+      const response = await fetch(`${CONFIG.API_BASE_URL}${path}`, {
+        method: options.method || 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: options.body ? JSON.stringify(options.body) : undefined
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || `请求失败（${response.status}）`);
+      return data;
+    }
+
+    function escapeHtml(value = '') {
+      return String(value).replace(/[&<>'"]/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      })[char]);
+    }
+
+    function isEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
+
+    function getAuthRequest() {
+      const params = new URLSearchParams(location.search);
+      return {
+        clientId: params.get('client_id') || 'demo-client',
+        redirectUri: params.get('redirect_uri') || '',
+        requestState: params.get('state') || '',
+        requestOrigin: location.origin,
+        embedTicket: params.get('ticket') || ''
+      };
+    }
+
+    function isEmbedded() {
+      return new URLSearchParams(location.search).get('embed') === '1';
+    }
+
+    function notifyFrameSize() {
+      if (!isEmbedded() || window.parent === window) return;
+      window.parent.postMessage({
+        type: 'terminal-login-resize',
+        height: Math.ceil(document.documentElement.scrollHeight)
+      }, '*');
+    }
+
+    function getSafeHttpUrl(value) {
+      if (!value) return null;
+      try {
+        const url = new URL(value);
+        return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function setFieldError(inputId, message = '') {
+      const input = document.getElementById(inputId);
+      const error = document.getElementById(`${inputId}-error`);
+      input.setAttribute('aria-invalid', message ? 'true' : 'false');
+      error.textContent = message;
+      error.hidden = !message;
+    }
+
+    function clearFormErrors(form) {
+      $$('.field-error', form).forEach(error => { error.textContent = ''; error.hidden = true; });
+      $$('input', form).forEach(input => input.setAttribute('aria-invalid', 'false'));
+    }
+
+    function setAlert(id, message = '', type = 'error') {
+      const alert = document.getElementById(id);
+      alert.textContent = message;
+      alert.className = `alert${message ? ' is-visible' : ''}${type === 'success' ? ' success' : ''}`;
+    }
+
+    function setButtonLoading(button, loading, label) {
+      if (!button.dataset.originalText) button.dataset.originalText = button.textContent;
+      button.disabled = loading;
+      button.innerHTML = loading
+        ? `<span class="spinner" aria-hidden="true"></span>${escapeHtml(label)}`
+        : escapeHtml(button.dataset.originalText);
+    }
+
+    function showToast(message) {
+      const toast = document.createElement('div');
+      toast.className = 'toast';
+      toast.textContent = message;
+      $('#toast-region').appendChild(toast);
+      setTimeout(() => toast.remove(), 2500);
+    }
+
+    function navigate(route, replace = false) {
+      const hash = `#${route}`;
+      if (replace) history.replaceState(null, '', hash);
+      else if (location.hash !== hash) location.hash = hash;
+      renderRoute();
+    }
+
+    function renderRoute() {
+      let route = location.hash.slice(1) || 'login';
+      if (!['login', 'success', 'forgot', 'change-password'].includes(route)) route = 'login';
+      if (route === 'success' && !state.currentUser) {
+        route = 'login';
+        history.replaceState(null, '', '#login');
+      }
+
+      $$('.view').forEach(view => view.classList.remove('is-active'));
+      const target = document.getElementById(`view-${route}`);
+      target.classList.add('is-active');
+      document.title = `${target.querySelector('h1, h2').textContent}｜通用登录网关`;
+
+      if (route === 'success') renderSuccess();
+      if (route === 'forgot' && !$('#forgot-email').value) $('#forgot-email').value = $('#login-email').value.trim();
+      if (route === 'change-password') prepareChangePassword();
+
+      requestAnimationFrame(() => target.querySelector('input, button')?.focus({ preventScroll: true }));
+    }
+
+    function prepareChangePassword() {
+      const emailInput = $('#change-email');
+      const email = state.currentUser?.email || $('#login-email').value.trim();
+      if (email && !emailInput.value) emailInput.value = email;
+      emailInput.readOnly = Boolean(state.currentUser);
+    }
+
+    function getMountedApps() {
+      const apps = [...CONFIG.MOUNTED_APPS];
+      const params = new URLSearchParams(location.search);
+      const requestedUrl = getSafeHttpUrl(params.get('redirect_uri'));
+      if (requestedUrl) {
+        apps.unshift({ name: params.get('app_name') || '当前接入系统', url: requestedUrl, requested: true });
+      }
+      const unique = new Map();
+      apps.forEach(app => {
+        const safeUrl = getSafeHttpUrl(app.url);
+        if (safeUrl && !unique.has(safeUrl)) unique.set(safeUrl, { ...app, url: safeUrl });
+      });
+      return [...unique.values()];
+    }
+
+    function renderSuccess() {
+      $('#success-email').textContent = state.currentUser?.email || '—';
+      $('#success-time').textContent = state.currentUser?.loginAt
+        ? new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(state.currentUser.loginAt))
+        : '—';
+      $('#mounted-apps').innerHTML = `
+        <ul class="app-list">
+          ${getMountedApps().map((app, index) => `
+            <li class="app-item">
+              <div>
+                <p><strong>${escapeHtml(app.name)}</strong>${app.requested ? ' · 本次请求' : ''}</p>
+                <p class="app-url">${escapeHtml(app.url)}</p>
+              </div>
+              <button class="btn${index === 0 ? ' btn-primary' : ''}" type="button" data-open-app="${index}">前往</button>
+            </li>
+          `).join('')}
+        </ul>`;
+    }
+
+    function openModal({ title, body, actions = [], onConfirm = null }) {
+      state.lastFocusedElement = document.activeElement;
+      state.modalConfirm = onConfirm;
+      $('#modal-title').textContent = title;
+      $('#modal-description').innerHTML = body;
+      $('#modal-actions').innerHTML = actions.map(action => `
+        <button class="btn${action.primary ? ' btn-primary' : ''}" type="button" data-modal-action="${escapeHtml(action.id)}">
+          ${escapeHtml(action.label)}
+        </button>`).join('');
+      $('#modal-layer').classList.add('is-open');
+      $('#modal-layer').setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      requestAnimationFrame(() => $('#modal-actions .btn')?.focus());
+    }
+
+    function closeModal() {
+      $('#modal-layer').classList.remove('is-open');
+      $('#modal-layer').setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+      state.modalConfirm = null;
+      state.lastFocusedElement?.focus();
+    }
+
+    $('#login-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const email = $('#login-email').value.trim();
+      const password = $('#login-password').value;
+      clearFormErrors(event.currentTarget);
+      setAlert('login-alert');
+      let valid = true;
+      if (!email || !isEmail(email)) { setFieldError('login-email', email ? '请输入有效的邮箱格式。' : '请输入飞书邮箱号。'); valid = false; }
+      if (!password) { setFieldError('login-password', '请输入密码。'); valid = false; }
+      if (!valid) return;
+
+      const button = $('#login-submit');
+      setButtonLoading(button, true, '正在登录');
+      try {
+        const result = await api.login({ email, password, ...getAuthRequest() });
+        if (isEmbedded() && window.parent !== window) {
+          // targetOrigin 由终端服务根据嵌入票据返回，令牌不会广播给其他来源。
+          window.parent.postMessage({
+            type: 'terminal-login-success',
+            result: {
+              token: result.token,
+              expiresIn: result.expiresIn,
+              clientId: result.clientId,
+              user: result.user
+            }
+          }, result.targetOrigin);
+          return;
+        }
+        state.currentUser = { ...result.user, loginAt: result.loginAt };
+        sessionStorage.setItem('gatewaySession', JSON.stringify(state.currentUser));
+        navigate('success');
+      } catch (error) {
+        setAlert('login-alert', error.message || '登录失败，请稍后重试。');
+      } finally {
+        setButtonLoading(button, false, '');
+      }
+    });
+
+    $('#forgot-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const email = $('#forgot-email').value.trim();
+      clearFormErrors(event.currentTarget);
+      setAlert('forgot-alert');
+      if (!email || !isEmail(email)) {
+        setFieldError('forgot-email', email ? '请输入有效的邮箱格式。' : '请输入飞书邮箱号。');
+        return;
+      }
+      const button = $('#forgot-submit');
+      setButtonLoading(button, true, '正在发送');
+      try {
+        await api.sendResetEmail({ email });
+        openModal({
+          title: '重置邮件已发送',
+          body: `<p>如果账号 <strong>${escapeHtml(email)}</strong> 存在，重置链接已发送至该飞书邮箱。</p><p class="helper">请打开飞书邮箱完成重置。</p>`,
+          actions: [
+            { id: 'cancel', label: '稍后处理' },
+            { id: 'open-mail', label: '打开飞书邮箱', primary: true }
+          ]
+        });
+      } catch (error) {
+        setAlert('forgot-alert', error.message || '邮件发送失败，请稍后重试。');
+      } finally {
+        setButtonLoading(button, false, '');
+      }
+    });
+
+    $('#change-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const email = $('#change-email').value.trim();
+      const currentPassword = $('#current-password').value;
+      const newPassword = $('#new-password').value;
+      const confirmPassword = $('#confirm-password').value;
+      clearFormErrors(event.currentTarget);
+      setAlert('change-alert');
+      let valid = true;
+
+      if (!email || !isEmail(email)) { setFieldError('change-email', email ? '请输入有效的邮箱格式。' : '请输入飞书邮箱号。'); valid = false; }
+      if (!currentPassword) { setFieldError('current-password', '请输入原密码。'); valid = false; }
+      if (!newPassword) { setFieldError('new-password', '请输入新密码。'); valid = false; }
+      else if (newPassword.length < 8 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
+        setFieldError('new-password', '新密码需至少 8 位，且同时包含字母与数字。'); valid = false;
+      } else if (newPassword === currentPassword) {
+        setFieldError('new-password', '新密码不能与原密码相同。'); valid = false;
+      }
+      if (!confirmPassword) { setFieldError('confirm-password', '请再次输入新密码。'); valid = false; }
+      else if (confirmPassword !== newPassword) { setFieldError('confirm-password', '两次输入的新密码不一致。'); valid = false; }
+      if (!valid) return;
+
+      const button = $('#change-submit');
+      setButtonLoading(button, true, '正在修改');
+      try {
+        await api.changePassword({ email, currentPassword, newPassword });
+        event.currentTarget.reset();
+        openModal({
+          title: '密码修改完成',
+          body: `
+            <p>新密码已生效，并已自动写入终端账号库。</p>
+            <div class="sync-list">
+              <div class="sync-line"><span class="status-dot"></span><span>密码已更新</span></div>
+              <div class="sync-line"><span class="status-dot"></span><span>本机终端数据已同步</span></div>
+            </div>`,
+          actions: [{ id: 'change-done', label: '完成', primary: true }]
+        });
+      } catch (error) {
+        setAlert('change-alert', error.message || '密码修改失败，请稍后重试。');
+      } finally {
+        setButtonLoading(button, false, '');
+      }
+    });
+
+    document.addEventListener('click', event => {
+      const routeButton = event.target.closest('[data-route]');
+      if (routeButton) {
+        const route = routeButton.dataset.route;
+        if (route === 'change-password') state.lastRouteBeforeChange = state.currentUser ? 'success' : 'login';
+        navigate(route);
+        return;
+      }
+
+      if (event.target.closest('[data-back-from-change]')) {
+        navigate(state.lastRouteBeforeChange || 'login');
+        return;
+      }
+
+      const toggle = event.target.closest('[data-toggle-password]');
+      if (toggle) {
+        const input = document.getElementById(toggle.dataset.togglePassword);
+        const showing = input.type === 'text';
+        input.type = showing ? 'password' : 'text';
+        toggle.textContent = showing ? '显示' : '隐藏';
+        toggle.setAttribute('aria-label', `${showing ? '显示' : '隐藏'}密码`);
+        return;
+      }
+
+      const appButton = event.target.closest('[data-open-app]');
+      if (appButton) {
+        const app = getMountedApps()[Number(appButton.dataset.openApp)];
+        openModal({
+          title: '确认前往业务系统',
+          body: `<p>网关将向以下地址回传一次性授权结果：</p><p class="modal-url">${escapeHtml(app.url)}</p>`,
+          actions: [
+            { id: 'cancel', label: '取消' },
+            { id: 'confirm', label: '确认前往', primary: true }
+          ],
+          onConfirm: () => {
+            closeModal();
+            window.location.assign(app.url);
+          }
+        });
+      }
+    });
+
+    $('#logout-button').addEventListener('click', async () => {
+      await api.logout().catch(() => null);
+      state.currentUser = null;
+      sessionStorage.removeItem('gatewaySession');
+      $('#login-password').value = '';
+      navigate('login');
+    });
+
+    $('#modal-close').addEventListener('click', closeModal);
+    $('#modal-layer').addEventListener('click', event => {
+      if (event.target === $('#modal-layer')) closeModal();
+      const action = event.target.closest('[data-modal-action]')?.dataset.modalAction;
+      if (!action) return;
+      if (action === 'confirm' && state.modalConfirm) state.modalConfirm();
+      else if (action === 'open-mail') {
+        window.open(CONFIG.FEISHU_MAIL_URL, '_blank', 'noopener,noreferrer');
+        closeModal();
+      } else if (action === 'change-done') {
+        closeModal();
+        navigate(state.currentUser ? 'success' : 'login');
+      } else closeModal();
+    });
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && $('#modal-layer').classList.contains('is-open')) closeModal();
+    });
+
+    window.addEventListener('hashchange', renderRoute);
+
+    try {
+      const session = sessionStorage.getItem('gatewaySession');
+      if (session) state.currentUser = JSON.parse(session);
+    } catch (_) {
+      sessionStorage.removeItem('gatewaySession');
+    }
+
+    if (isEmbedded()) {
+      // 忘记密码和修改密码可能增高卡片，实时通知外层 SDK 调整 iframe。
+      new ResizeObserver(notifyFrameSize).observe(document.documentElement);
+      window.addEventListener('load', notifyFrameSize);
+    }
+    if (!location.hash) history.replaceState(null, '', '#login');
+    renderRoute();
+  </script>
+</body>
+</html>
