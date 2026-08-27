@@ -817,11 +817,13 @@
 
     $('#change-form').addEventListener('submit', async event => {
       event.preventDefault();
+      // 异步请求完成后 event.currentTarget 会被浏览器清空，需提前保存表单引用。
+      const form = event.currentTarget;
       const email = $('#change-email').value.trim();
       const currentPassword = $('#current-password').value;
       const newPassword = $('#new-password').value;
       const confirmPassword = $('#confirm-password').value;
-      clearFormErrors(event.currentTarget);
+      clearFormErrors(form);
       setAlert('change-alert');
       let valid = true;
 
@@ -841,7 +843,7 @@
       setButtonLoading(button, true, '正在修改');
       try {
         await api.changePassword({ email, currentPassword, newPassword });
-        event.currentTarget.reset();
+        form.reset();
         openModal({
           title: '密码修改完成',
           body: `
