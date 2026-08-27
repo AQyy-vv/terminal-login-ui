@@ -116,6 +116,20 @@
 
     .toolbar-copy p { margin: 0; }
 
+    .list-tools,
+    .pager {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 10px 0;
+    }
+
+    .list-search { width: min(330px, 100%); }
+
+    .pager { justify-content: flex-end; }
+    .pager-summary { margin-right: auto; color: var(--muted); font-size: 12px; }
+
     .btn {
       min-height: 40px;
       padding: 8px 14px;
@@ -256,6 +270,11 @@
       margin-top: 8px;
     }
 
+    .check-list-scroll {
+      max-height: 360px;
+      overflow-y: auto;
+    }
+
     .check-item {
       display: flex;
       align-items: flex-start;
@@ -332,6 +351,9 @@
       .admin-shell { width: 100%; min-height: 100vh; margin: 0; border: 0; }
       .topbar, .content { padding-inline: 16px; }
       .topbar, .toolbar { align-items: stretch; flex-direction: column; }
+      .list-tools, .pager { align-items: stretch; flex-direction: column; }
+      .list-search { width: 100%; }
+      .pager-summary { margin-right: 0; }
       .topbar-actions { align-items: stretch; flex-direction: column; }
       .terminal-tag { align-self: flex-start; }
       .stats { grid-template-columns: 1fr; }
@@ -388,6 +410,10 @@
         <button class="btn btn-primary" id="open-create" type="button">新增可登录账号</button>
       </div>
 
+      <div class="list-tools">
+        <input class="list-search" id="account-search" type="search" placeholder="搜索账号或持有人" aria-label="搜索账号或持有人">
+      </div>
+
       <div class="table-wrap">
         <table>
           <thead>
@@ -405,6 +431,7 @@
           <tbody id="account-rows"></tbody>
         </table>
       </div>
+      <div class="pager" id="account-pager" aria-label="账号分页"></div>
       <p class="table-note">用户在登录页修改密码后，此处会自动更新为“用户已修改”，并刷新密码更新时间。</p>
 
       <section class="section-divider">
@@ -415,6 +442,9 @@
           </div>
           <button class="btn btn-primary" id="open-client-create" type="button">新增接入网站</button>
         </div>
+        <div class="list-tools">
+          <input class="list-search" id="client-search" type="search" placeholder="搜索客户端 ID、网站名称或 Origin" aria-label="搜索接入网站">
+        </div>
         <div class="table-wrap">
           <table>
             <thead>
@@ -423,12 +453,14 @@
                 <th scope="col">网站名称</th>
                 <th scope="col">允许的 Origin</th>
                 <th scope="col">状态</th>
+                <th scope="col">授权账号</th>
                 <th scope="col">操作</th>
               </tr>
             </thead>
             <tbody id="client-rows"></tbody>
           </table>
         </div>
+        <div class="pager" id="client-pager" aria-label="接入网站分页"></div>
         <p class="table-note">停用网站后，该网站无法再打开登录弹窗；已签发令牌复核时也会立即失效。</p>
       </section>
 
@@ -439,6 +471,9 @@
             <p class="helper">为共同管理人员分配角色，避免共享同一个管理密钥。</p>
           </div>
           <button class="btn btn-primary" id="open-admin-create" type="button">新增管理员</button>
+        </div>
+        <div class="list-tools">
+          <input class="list-search" id="admin-search" type="search" placeholder="搜索管理员姓名、邮箱或角色" aria-label="搜索管理员">
         </div>
         <div class="table-wrap">
           <table>
@@ -455,12 +490,16 @@
             <tbody id="admin-rows"></tbody>
           </table>
         </div>
+        <div class="pager" id="admin-pager" aria-label="管理员分页"></div>
       </section>
 
       <section class="section-divider">
         <div class="toolbar-copy">
           <h2>操作审计</h2>
           <p class="helper">记录管理员登录、账号授权、启停、重置密码和角色调整。</p>
+        </div>
+        <div class="list-tools">
+          <input class="list-search" id="audit-search" type="search" placeholder="搜索操作人、操作、对象或详情" aria-label="搜索操作审计">
         </div>
         <div class="table-wrap" style="margin-top: 14px;">
           <table>
@@ -476,6 +515,7 @@
             <tbody id="audit-rows"></tbody>
           </table>
         </div>
+        <div class="pager" id="audit-pager" aria-label="审计记录分页"></div>
       </section>
     </section>
   </main>
@@ -569,12 +609,36 @@
     <form id="access-form">
       <div class="dialog-body">
         <p>账号：<strong id="access-account">—</strong></p>
-        <div class="check-list" id="access-options"></div>
+        <input id="access-search" type="search" placeholder="搜索网站名称、客户端 ID 或 Origin" aria-label="搜索可授权网站">
+        <div class="check-list check-list-scroll" id="access-options"></div>
+        <div class="pager" id="access-pager" aria-label="授权网站分页"></div>
         <p class="field-error" id="access-error" role="alert" hidden></p>
       </div>
       <footer class="dialog-footer">
         <button class="btn" type="button" data-close-dialog="access-dialog">取消</button>
         <button class="btn btn-primary" id="access-submit" type="submit">保存授权</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- 从接入网站侧批量配置允许登录的账号。 -->
+  <dialog id="client-access-dialog" aria-labelledby="client-access-title">
+    <header class="dialog-header">
+      <h2 id="client-access-title">配置网站用户权限</h2>
+      <button class="dialog-close" type="button" data-close-dialog="client-access-dialog" aria-label="关闭">×</button>
+    </header>
+    <form id="client-access-form">
+      <div class="dialog-body">
+        <p>接入网站：<strong id="client-access-name">—</strong></p>
+        <input id="client-access-search" type="search" placeholder="搜索账号或持有人" aria-label="搜索可授权账号">
+        <div class="check-list check-list-scroll" id="client-access-options"></div>
+        <div class="pager" id="client-access-pager" aria-label="授权账号分页"></div>
+        <p class="helper">取消“全部网站”账号时，该账号会改为仅保留其他现有网站权限。</p>
+        <p class="field-error" id="client-access-error" role="alert" hidden></p>
+      </div>
+      <footer class="dialog-footer">
+        <button class="btn" type="button" data-close-dialog="client-access-dialog">取消</button>
+        <button class="btn btn-primary" id="client-access-submit" type="submit">保存用户权限</button>
       </footer>
     </form>
   </dialog>
