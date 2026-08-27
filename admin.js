@@ -7,6 +7,7 @@ const state = {
   me: null,
   permissions: [],
   accounts: [],
+  managers: [],
   clients: [],
   auditLogs: [],
   pendingResetId: null,
@@ -19,10 +20,12 @@ const state = {
   clientAccessView: { query: '', page: 1 },
   listViews: {
     accounts: { query: '', page: 1 },
+    managers: { query: '', page: 1 },
     clients: { query: '', page: 1 },
     audits: { query: '', page: 1 }
   },
-  currentCredential: null
+  currentCredential: null,
+  loginCanCancel: false
 };
 
 const LIST_PAGE_SIZE = 10;
@@ -97,22 +100,32 @@ function setButtonLoading(button, loading, label) {
     : escapeHtml(button.dataset.originalText);
 }
 
-function openAdminLoginDialog(message = '') {
+function openAdminLoginDialog(message = '', allowCancel = false) {
+  state.loginCanCancel = Boolean(allowCancel && state.token);
   $('#admin-key-error').textContent = message;
   $('#admin-key-error').hidden = !message;
   $('#admin-key').value = '';
-  $('#admin-email').value = sessionStorage.getItem('terminalAdminEmail') || '';
+  $('#admin-email').value = state.loginCanCancel ? '' : (sessionStorage.getItem('terminalAdminEmail') || '');
+  $('#admin-login-cancel').hidden = !state.loginCanCancel;
   if (!$('#admin-key-dialog').open) $('#admin-key-dialog').showModal();
-  requestAnimationFrame(() => (sessionStorage.getItem('terminalAdminEmail') ? $('#admin-key') : $('#admin-email')).focus());
+  requestAnimationFrame(() => ($('#admin-email').value ? $('#admin-key') : $('#admin-email')).focus());
 }
 
 function clearAdminSession(message = '') {
   state.token = '';
   state.me = null;
   state.permissions = [];
+  state.accounts = [];
+  state.managers = [];
+  state.clients = [];
+  state.auditLogs = [];
   sessionStorage.removeItem('terminalAdminToken');
   $('#current-admin').textContent = '未登录';
-  openAdminLoginDialog(message);
+  renderAccounts();
+  renderManagers();
+  renderClients();
+  renderAuditLogs();
+  openAdminLoginDialog(message, false);
 }
 
 async function request(path, options = {}, authenticated = true) {
@@ -138,6 +151,7 @@ const adminApi = {
   },
   me() { return request('/admin/me'); },
   logout() { return request('/admin/logout', { method: 'POST' }); },
+  listManagers() { return request('/admin/management-members'); },
   listAccounts() { return request('/admin/accounts'); },
   createAccount(email, owner) { return request('/admin/accounts', { method: 'POST', body: { email, owner } }); },
   setAccountEnabled(id, enabled) {
@@ -236,6 +250,23 @@ function renderClients() {
   renderPager('#client-pager', 'clients', pageInfo);
 }
 
+function renderManagers() {
+  const filtered = state.managers.filter(member => matchesSearch([
+    member.name, member.email, roleLabel(member.role), member.enabled ? '正常' : '已停用'
+  ], state.listViews.managers.query));
+  const pageInfo = paginate(filtered, state.listViews.managers);
+  $('#manager-rows').innerHTML = pageInfo.items.length ? pageInfo.items.map(member => `
+    <tr>
+      <td><strong>${escapeHtml(member.name || '—')}</strong>${member.id === state.me?.id ? '（当前）' : ''}</td>
+      <td>${escapeHtml(member.email)}</td>
+      <td><span class="status-tag status-enabled">${escapeHtml(roleLabel(member.role))}</span></td>
+      <td><span class="status-tag ${member.enabled ? 'status-enabled' : 'status-disabled'}">${member.enabled ? '正常' : '已停用'}</span></td>
+      <td>${escapeHtml(formatDate(member.lastLoginAt))}</td>
+      <td>${member.source === 'owner' ? '系统固定' : '账号列表联动'}</td>
+    </tr>`).join('') : `<tr><td colspan="6"><div class="empty">${state.managers.length ? '没有匹配的管理员。' : '暂无管理员。'}</div></td></tr>`;
+  renderPager('#manager-pager', 'managers', pageInfo);
+}
+
 function renderAuditLogs() {
   const filtered = state.auditLogs.filter(log => matchesSearch([
     log.actorName, log.actorEmail, log.action, log.target, log.detail, formatDate(log.createdAt)
@@ -291,17 +322,28 @@ function renderClientAccessOptions() {
 function renderAll() {
   $('#current-admin').textContent = `${state.me.name} · ${roleLabel(state.me.role)}`;
   renderAccounts();
+  renderManagers();
   renderClients();
   renderAuditLogs();
 }
 
 async function refreshAll() {
-  const [meResult, accountResult, clientResult, auditResult] = await Promise.all([
-    adminApi.me(), adminApi.listAccounts(), adminApi.listClients(), adminApi.auditLogs()
+  const [meResult, accountResult, managerResult, clientResult, auditResult] = await Promise.all([
+    adminApi.me(),
+    adminApi.listAccounts(),
+    adminApi.listManagers().catch(() => ({ members: [] })),
+    adminApi.listClients(),
+    adminApi.auditLogs()
   ]);
   state.me = meResult.admin;
   state.permissions = meResult.permissions;
   state.accounts = accountResult.accounts;
+  state.managers = managerResult.members.length ? managerResult.members : [
+    ...(state.me.role === 'owner' ? [{ ...state.me, source: 'owner' }] : []),
+    ...state.accounts.filter(account => account.role === 'admin').map(account => ({
+      ...account, name: account.owner || account.email, source: 'account'
+    }))
+  ];
   state.clients = clientResult.clients;
   state.auditLogs = auditResult.logs;
   renderAll();
@@ -309,6 +351,7 @@ async function refreshAll() {
 
 [
   ['#account-search', state.listViews.accounts, renderAccounts],
+  ['#manager-search', state.listViews.managers, renderManagers],
   ['#client-search', state.listViews.clients, renderClients],
   ['#audit-search', state.listViews.audits, renderAuditLogs]
 ].forEach(([selector, view, renderer]) => {
@@ -323,6 +366,7 @@ function goToPage(target, page) {
   const numericPage = Math.max(1, Number(page) || 1);
   const routes = {
     accounts: [state.listViews.accounts, renderAccounts],
+    managers: [state.listViews.managers, renderManagers],
     clients: [state.listViews.clients, renderClients],
     audits: [state.listViews.audits, renderAuditLogs],
     access: [state.accessView, renderAccessOptions],
@@ -358,6 +402,8 @@ $('#admin-key-form').addEventListener('submit', async event => {
     sessionStorage.setItem('terminalAdminToken', result.token);
     sessionStorage.setItem('terminalAdminEmail', email);
     await refreshAll();
+    state.loginCanCancel = false;
+    $('#admin-login-cancel').hidden = true;
     $('#admin-key-dialog').close();
   } catch (error) {
     $('#admin-key-error').textContent = error.message;
@@ -367,8 +413,16 @@ $('#admin-key-form').addEventListener('submit', async event => {
   }
 });
 
-$('#admin-key-dialog').addEventListener('cancel', event => event.preventDefault());
-$('#change-admin-key').addEventListener('click', () => clearAdminSession());
+$('#admin-key-dialog').addEventListener('cancel', event => {
+  if (!state.loginCanCancel) event.preventDefault();
+  else state.loginCanCancel = false;
+});
+$('#admin-login-cancel').addEventListener('click', () => {
+  if (!state.loginCanCancel) return;
+  state.loginCanCancel = false;
+  $('#admin-key-dialog').close();
+});
+$('#change-admin-key').addEventListener('click', () => openAdminLoginDialog('', true));
 $('#admin-logout').addEventListener('click', async () => {
   await adminApi.logout().catch(() => null);
   clearAdminSession('已退出管理员登录。');

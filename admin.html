@@ -436,6 +436,33 @@
       <p class="table-note">用户在登录页修改密码后，此处会自动更新为“用户已修改”，并刷新密码更新时间。</p>
 
       <section class="section-divider">
+        <div class="toolbar-copy">
+          <h2>管理员列表</h2>
+          <p class="helper">自动显示终端拥有者，以及账号列表中权限角色为“管理员”的账号。</p>
+        </div>
+        <div class="list-tools">
+          <input class="list-search" id="manager-search" type="search" placeholder="搜索管理员姓名、账号或角色" aria-label="搜索管理员列表">
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">姓名</th>
+                <th scope="col">账号</th>
+                <th scope="col">权限角色</th>
+                <th scope="col">状态</th>
+                <th scope="col">最近登录</th>
+                <th scope="col">管理方式</th>
+              </tr>
+            </thead>
+            <tbody id="manager-rows"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="manager-pager" aria-label="管理员列表分页"></div>
+        <p class="table-note">新增或取消管理员，请在上方账号表的“权限角色”列中操作。</p>
+      </section>
+
+      <section class="section-divider">
         <div class="toolbar">
           <div class="toolbar-copy">
             <h2>接入网站</h2>
@@ -511,6 +538,7 @@
         <p class="helper" style="margin: 13px 0 0;">终端拥有者使用初始管理账号；管理员使用账号列表中的原账号和密码。</p>
       </div>
       <footer class="dialog-footer">
+        <button class="btn" id="admin-login-cancel" type="button" hidden>取消切换</button>
         <button class="btn btn-primary" id="admin-key-submit" type="submit">进入管理页</button>
       </footer>
     </form>

@@ -450,7 +450,7 @@
 
       <form class="form" id="forgot-form" novalidate>
         <div class="field">
-          <label class="required" for="forgot-email">飞书邮箱号</label>
+          <label class="required" for="forgot-email">账号</label>
           <input id="forgot-email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="name@company.com" required>
           <p class="field-hint">重置链接仅发送至该飞书邮箱。</p>
           <p class="field-error" id="forgot-email-error" role="alert" hidden></p>
@@ -471,7 +471,7 @@
 
       <form class="form" id="change-form" novalidate>
         <div class="field">
-          <label class="required" for="change-email">飞书邮箱号</label>
+          <label class="required" for="change-email">账号</label>
           <input id="change-email" name="email" type="email" autocomplete="username" inputmode="email" placeholder="name@company.com" required>
           <p class="field-error" id="change-email-error" role="alert" hidden></p>
         </div>
@@ -573,7 +573,8 @@
       const response = await fetch(`${CONFIG.API_BASE_URL}${path}`, {
         method: options.method || 'GET',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        // 网关使用短期令牌而不是 Cookie；跨域携带 Cookie 会被浏览器拦截。
+        credentials: 'omit',
         body: options.body ? JSON.stringify(options.body) : undefined
       });
       const data = await response.json().catch(() => ({}));
@@ -792,7 +793,7 @@
       clearFormErrors(event.currentTarget);
       setAlert('forgot-alert');
       if (!email || !isEmail(email)) {
-        setFieldError('forgot-email', email ? '请输入有效的邮箱格式。' : '请输入飞书邮箱号。');
+        setFieldError('forgot-email', email ? '请输入有效的账号格式。' : '请输入账号。');
         return;
       }
       const button = $('#forgot-submit');
@@ -824,7 +825,7 @@
       setAlert('change-alert');
       let valid = true;
 
-      if (!email || !isEmail(email)) { setFieldError('change-email', email ? '请输入有效的邮箱格式。' : '请输入飞书邮箱号。'); valid = false; }
+      if (!email || !isEmail(email)) { setFieldError('change-email', email ? '请输入有效的账号格式。' : '请输入账号。'); valid = false; }
       if (!currentPassword) { setFieldError('current-password', '请输入原密码。'); valid = false; }
       if (!newPassword) { setFieldError('new-password', '请输入新密码。'); valid = false; }
       else if (newPassword.length < 8 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
