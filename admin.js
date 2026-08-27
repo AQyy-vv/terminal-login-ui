@@ -464,7 +464,7 @@ $('#create-form').addEventListener('submit', async event => {
   ownerError.hidden = true;
   let valid = true;
   if (!email || !isEmail(email)) {
-    emailError.textContent = email ? '请输入有效的邮箱格式。' : '请输入飞书邮箱号。';
+    emailError.textContent = email ? '请输入有效的账号格式。' : '请输入账号。';
     emailError.hidden = false;
     valid = false;
   }
