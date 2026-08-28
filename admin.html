@@ -6,19 +6,19 @@
   <title>终端账号管理｜通用登录网关</title>
   <style>
     :root {
-      --page: #eeeeee;
+      --page: #f2f3f5;
       --surface: #ffffff;
-      --surface-2: #f5f5f5;
-      --text: #1d1d1d;
-      --muted: #666666;
-      --line: #cccccc;
-      --line-dark: #8a8a8a;
-      --primary: #303030;
-      --primary-hover: #151515;
+      --surface-2: #f7f7f8;
+      --text: #202124;
+      --muted: #6b6f76;
+      --line: #d9dce1;
+      --line-dark: #aeb3ba;
+      --primary: #26282b;
+      --primary-hover: #111214;
       --success: #2f623b;
       --danger: #8c2222;
       --warning: #6f531b;
-      --shadow: 0 12px 38px rgba(0, 0, 0, 0.17);
+      --shadow: 0 16px 44px rgba(20, 22, 26, 0.14);
     }
 
     * { box-sizing: border-box; }
@@ -45,10 +45,13 @@
     }
 
     .admin-shell {
-      width: min(1160px, calc(100% - 32px));
-      margin: 16px auto;
+      width: min(1240px, calc(100% - 40px));
+      margin: 22px auto;
       background: var(--surface);
       border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 3px 14px rgba(25, 28, 33, 0.05);
+      overflow: hidden;
     }
 
     .topbar {
@@ -56,7 +59,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 18px;
-      padding: 18px 22px;
+      padding: 22px 28px;
       border-bottom: 1px solid var(--line);
     }
 
@@ -69,23 +72,28 @@
     .subtitle { margin: 0; }
 
     .terminal-tag,
-    .status-tag {
+    .status-tag,
+    .role-tag {
       display: inline-block;
-      padding: 4px 9px;
+      padding: 4px 10px;
       border: 1px solid var(--line-dark);
+      border-radius: 999px;
       white-space: nowrap;
+      font-size: 12px;
     }
 
     .topbar-actions { display: flex; align-items: center; gap: 9px; }
 
-    .content { padding: 22px; }
+    .content { padding: 26px 28px 34px; }
 
     .notice {
-      margin-bottom: 22px;
-      padding: 13px 15px;
-      color: var(--warning);
-      background: #fbfaf6;
-      border-left: 3px solid var(--warning);
+      margin-bottom: 24px;
+      padding: 15px 17px;
+      color: #4e5156;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--primary);
+      border-radius: 8px;
     }
 
     .notice strong { color: var(--text); }
@@ -98,9 +106,10 @@
     }
 
     .stat {
-      padding: 15px;
+      padding: 17px 18px;
       background: var(--surface-2);
       border: 1px solid var(--line);
+      border-radius: 9px;
     }
 
     .stat p { margin: 0; }
@@ -136,7 +145,7 @@
       color: var(--text);
       background: var(--surface);
       border: 1px solid var(--line-dark);
-      border-radius: 0;
+      border-radius: 7px;
     }
 
     .btn:hover { background: var(--surface-2); border-color: var(--primary); }
@@ -144,21 +153,22 @@
     .btn-primary { color: #ffffff; background: var(--primary); border-color: var(--primary); }
     .btn-primary:hover { background: var(--primary-hover); }
     .btn-danger { color: var(--danger); }
-    .btn-small { min-height: 34px; padding: 5px 10px; }
+    .btn-small { min-height: 34px; padding: 5px 11px; }
 
     .table-wrap {
       overflow-x: auto;
       border: 1px solid var(--line);
+      border-radius: 9px;
     }
 
     table {
       width: 100%;
-      min-width: 820px;
+      min-width: 900px;
       border-collapse: collapse;
     }
 
     th, td {
-      padding: 12px 13px;
+      padding: 14px 15px;
       text-align: left;
       vertical-align: middle;
       border-bottom: 1px solid var(--line);
@@ -174,6 +184,14 @@
     tbody tr:last-child td { border-bottom: 0; }
     tbody tr:hover { background: #fafafa; }
 
+    .identity-cell strong { display: block; margin-bottom: 2px; }
+    .identity-cell .meta { font-size: 12px; }
+    .cell-stack { display: grid; gap: 5px; justify-items: start; }
+
+    .role-owner { color: #25272a; background: #eceef1; border-color: #777c83; }
+    .role-admin { color: #3f4853; background: #f4f5f6; border-color: #9298a0; }
+    .role-user { color: var(--muted); background: #ffffff; border-color: var(--line-dark); }
+
     .status-enabled { color: var(--success); border-color: var(--success); }
     .status-disabled { color: var(--muted); }
     .status-initial { color: var(--warning); border-color: var(--warning); }
@@ -182,8 +200,8 @@
     .actions {
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 7px;
-      white-space: nowrap;
     }
 
     .empty {
@@ -195,9 +213,17 @@
     .table-note { margin: 10px 0 0; font-size: 12px; }
 
     .section-divider {
-      margin-top: 28px;
-      padding-top: 24px;
+      margin-top: 34px;
+      padding-top: 28px;
       border-top: 1px solid var(--line);
+    }
+
+    .manager-intro {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 12px;
     }
 
     .origin-list { margin: 0; padding-left: 18px; color: var(--muted); }
@@ -209,7 +235,7 @@
       color: var(--text);
       background: var(--surface);
       border: 1px solid var(--line-dark);
-      border-radius: 0;
+      border-radius: 12px;
       box-shadow: var(--shadow);
     }
 
@@ -261,7 +287,7 @@
       color: var(--text);
       background: var(--surface);
       border: 1px solid var(--line-dark);
-      border-radius: 0;
+      border-radius: 7px;
     }
 
     .check-list {
@@ -282,6 +308,7 @@
       padding: 9px;
       background: var(--surface-2);
       border: 1px solid var(--line);
+      border-radius: 7px;
     }
 
     .check-item input { width: 18px; min-height: 18px; margin-top: 2px; }
@@ -372,19 +399,19 @@
     <header class="topbar">
       <div>
         <h1>终端账号管理</h1>
-        <p class="subtitle">终端拥有者与管理员共同配置账号、权限和接入网站。</p>
+        <p class="subtitle">统一管理账号、管理角色和接入网站权限。</p>
       </div>
       <div class="topbar-actions">
         <span class="terminal-tag" id="current-admin">未登录</span>
         <button class="btn btn-small" id="change-admin-password" type="button">修改我的密码</button>
-        <button class="btn btn-small" id="change-admin-key" type="button">切换管理员</button>
+        <button class="btn btn-small" id="change-admin-key" type="button">切换账号</button>
         <button class="btn btn-small" id="admin-logout" type="button">退出</button>
       </div>
     </header>
 
     <section class="content">
       <div class="notice">
-        <strong>终端限制已启用：</strong>账号准入、密码哈希与接入网站白名单均由云函数 API 保存。管理页不读取用户明文密码，初始密码仅在创建或重置后展示一次。
+        <strong>一人一账号一密码：</strong>终端拥有者和管理员同时也是可登录账号，同一个密码用于管理页与所有接入网站。管理角色自动拥有全部网站权限，无需重复授权。
       </div>
 
       <section class="stats" aria-label="账号概览">
@@ -405,7 +432,7 @@
       <div class="toolbar">
         <div class="toolbar-copy">
           <h2>账号</h2>
-          <p class="helper">新增账号后，首次随机密码只展示一次。</p>
+          <p class="helper">账号是唯一身份来源；设为管理员不会产生第二个密码。</p>
         </div>
         <button class="btn btn-primary" id="open-create" type="button">新增可登录账号</button>
       </div>
@@ -419,12 +446,9 @@
           <thead>
             <tr>
               <th scope="col">账号</th>
-              <th scope="col">账号持有人</th>
-              <th scope="col">权限角色</th>
-              <th scope="col">登录权限</th>
-              <th scope="col">密码阶段</th>
-              <th scope="col">授权网站</th>
-              <th scope="col">密码更新时间</th>
+              <th scope="col">角色与状态</th>
+              <th scope="col">网站权限</th>
+              <th scope="col">密码</th>
               <th scope="col">最近登录</th>
               <th scope="col">操作</th>
             </tr>
@@ -433,12 +457,14 @@
         </table>
       </div>
       <div class="pager" id="account-pager" aria-label="账号分页"></div>
-      <p class="table-note">用户在登录页修改密码后，此处会自动更新为“用户已修改”，并刷新密码更新时间。</p>
+      <p class="table-note">任何账号在登录页或管理页修改密码后都会同步生效；旧密码和旧登录令牌立即失效。</p>
 
       <section class="section-divider">
-        <div class="toolbar-copy">
-          <h2>管理员列表</h2>
-          <p class="helper">自动显示终端拥有者，以及账号列表中权限角色为“管理员”的账号。</p>
+        <div class="manager-intro">
+          <div class="toolbar-copy">
+            <h2>管理团队</h2>
+            <p class="helper">这里是账号列表中“终端拥有者”和“管理员”的只读汇总，不再维护第二套身份。</p>
+          </div>
         </div>
         <div class="list-tools">
           <input class="list-search" id="manager-search" type="search" placeholder="搜索管理员姓名、账号或角色" aria-label="搜索管理员列表">
@@ -447,19 +473,17 @@
           <table>
             <thead>
               <tr>
-                <th scope="col">姓名</th>
-                <th scope="col">账号</th>
-                <th scope="col">权限角色</th>
+                <th scope="col">管理成员</th>
+                <th scope="col">角色</th>
                 <th scope="col">状态</th>
                 <th scope="col">最近登录</th>
-                <th scope="col">管理方式</th>
               </tr>
             </thead>
             <tbody id="manager-rows"></tbody>
           </table>
         </div>
         <div class="pager" id="manager-pager" aria-label="管理员列表分页"></div>
-        <p class="table-note">新增或取消管理员，请在上方账号表的“权限角色”列中操作。</p>
+        <p class="table-note">终端拥有者可在上方账号列表中授予或取消管理员角色。角色变化后仍使用该账号原来的同一个密码。</p>
       </section>
 
       <section class="section-divider">
@@ -532,10 +556,10 @@
         </div>
         <div class="field" style="margin-top: 14px;">
           <label class="required" for="admin-key">密码</label>
-          <input id="admin-key" type="password" autocomplete="current-password" placeholder="请输入管理员密码" required>
+          <input id="admin-key" type="password" autocomplete="current-password" placeholder="请输入账号密码" required>
           <p class="field-error" id="admin-key-error" role="alert" hidden></p>
         </div>
-        <p class="helper" style="margin: 13px 0 0;">终端拥有者使用初始管理账号；管理员使用账号列表中的原账号和密码。</p>
+        <p class="helper" style="margin: 13px 0 0;">请输入该账号平时登录接入网站所使用的同一个密码。</p>
       </div>
       <footer class="dialog-footer">
         <button class="btn" id="admin-login-cancel" type="button" hidden>取消切换</button>
@@ -562,7 +586,7 @@
           <input id="create-owner" type="text" autocomplete="off" placeholder="例如：张三" required>
           <p class="field-error" id="create-owner-error" role="alert" hidden></p>
         </div>
-        <p class="helper" style="margin: 13px 0 0;">保存后系统生成 14 位随机初始密码，账号默认允许登录。</p>
+        <p class="helper" style="margin: 13px 0 0;">保存后生成该用户唯一的初始密码；以后若设为管理员，仍继续使用这个密码。</p>
       </div>
       <footer class="dialog-footer">
         <button class="btn" type="button" data-close-dialog="create-dialog">取消</button>
@@ -711,6 +735,22 @@
     <footer class="dialog-footer">
       <button class="btn" type="button" data-close-dialog="reset-dialog">取消</button>
       <button class="btn btn-primary" id="confirm-reset" type="button">确认重置</button>
+    </footer>
+  </dialog>
+
+  <!-- 终端拥有者确认授予或取消管理员角色。角色变化不创建新密码。 -->
+  <dialog id="role-dialog" aria-labelledby="role-title">
+    <header class="dialog-header">
+      <h2 id="role-title">调整管理角色</h2>
+      <button class="dialog-close" type="button" data-close-dialog="role-dialog" aria-label="关闭">×</button>
+    </header>
+    <div class="dialog-body">
+      <p id="role-message">—</p>
+      <p class="helper" id="role-helper">角色变化后，该账号仍使用当前密码，不会生成第二个密码。</p>
+    </div>
+    <footer class="dialog-footer">
+      <button class="btn" type="button" data-close-dialog="role-dialog">取消</button>
+      <button class="btn btn-primary" id="confirm-role" type="button">确认</button>
     </footer>
   </dialog>
 

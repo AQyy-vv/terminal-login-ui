@@ -1,7 +1,13 @@
 'use strict';
 
 // GitHub Pages 仅运行管理界面，所有敏感操作仍由云函数鉴权后写入私有 COS。
-const CONFIG = { API_BASE_URL: 'https://1447704904-cwscdb1mvx.ap-guangzhou.tencentscf.com/api' };
+// 本机预览时自动使用同源 API，方便在部署前完整验证交互。
+const LOCAL_PREVIEW = ['127.0.0.1', 'localhost'].includes(location.hostname);
+const CONFIG = {
+  API_BASE_URL: LOCAL_PREVIEW
+    ? `${location.origin}/api`
+    : 'https://1447704904-cwscdb1mvx.ap-guangzhou.tencentscf.com/api'
+};
 const state = {
   token: sessionStorage.getItem('terminalAdminToken') || '',
   me: null,
@@ -11,6 +17,7 @@ const state = {
   clients: [],
   auditLogs: [],
   pendingResetId: null,
+  pendingRoleChange: null,
   pendingAccessId: null,
   accessSelection: new Set(),
   accessView: { query: '', page: 1 },
@@ -56,6 +63,16 @@ function can(permission) {
 
 function roleLabel(role) {
   return ({ owner: '终端拥有者', admin: '管理员', user: '用户' })[role] || '用户';
+}
+
+function passwordModeLabel(mode) {
+  if (mode === 'initial') return '初始密码';
+  if (mode === 'configured') return '已配置';
+  return '已自行修改';
+}
+
+function isManagementRole(role) {
+  return role === 'owner' || role === 'admin';
 }
 
 function matchesSearch(values, query) {
@@ -176,6 +193,7 @@ const adminApi = {
 };
 
 function accountAccessLabel(account) {
+  if (isManagementRole(account.role)) return '全部网站（随角色）';
   const ids = Array.isArray(account.allowedClientIds) ? account.allowedClientIds : [];
   if (ids.includes('*')) return '全部网站';
   if (!ids.length) return '未授权';
@@ -183,6 +201,7 @@ function accountAccessLabel(account) {
 }
 
 function accountHasClientAccess(account, clientId) {
+  if (isManagementRole(account.role)) return true;
   const ids = Array.isArray(account.allowedClientIds) ? account.allowedClientIds : [];
   return ids.includes('*') || ids.includes(clientId);
 }
@@ -201,28 +220,29 @@ function renderAccounts() {
   const pageInfo = paginate(filtered, state.listViews.accounts);
   $('#account-rows').innerHTML = pageInfo.items.length ? pageInfo.items.map(account => `
     <tr>
-      <td><strong>${escapeHtml(account.email)}</strong></td>
-      <td>${escapeHtml(account.owner || '—')}</td>
-      <td>
-        <select data-account-role="${escapeHtml(account.id)}" aria-label="${escapeHtml(account.owner || account.email)}的权限角色" ${roleWritable ? '' : 'disabled'}>
-          <option value="user" ${account.role !== 'admin' ? 'selected' : ''}>用户</option>
-          <option value="admin" ${account.role === 'admin' ? 'selected' : ''}>管理员</option>
-        </select>
-      </td>
-      <td><span class="status-tag ${account.enabled ? 'status-enabled' : 'status-disabled'}">${account.enabled ? '允许登录' : '已停用'}</span></td>
-      <td><span class="status-tag ${account.passwordMode === 'initial' ? 'status-initial' : 'status-changed'}">${account.passwordMode === 'initial' ? '首次随机密码' : '用户已修改'}</span></td>
+      <td class="identity-cell"><strong>${escapeHtml(account.owner || '未填写持有人')}</strong><span class="meta">${escapeHtml(account.email)}</span></td>
+      <td><div class="cell-stack">
+        <span class="role-tag role-${escapeHtml(account.role)}">${escapeHtml(roleLabel(account.role))}</span>
+        <span class="status-tag ${account.enabled ? 'status-enabled' : 'status-disabled'}">${account.enabled ? '允许登录' : '已停用'}</span>
+      </div></td>
       <td>${escapeHtml(accountAccessLabel(account))}</td>
-      <td>${escapeHtml(formatDate(account.passwordUpdatedAt))}</td>
+      <td><div class="cell-stack">
+        <span class="status-tag ${account.passwordMode === 'initial' ? 'status-initial' : 'status-changed'}">${escapeHtml(passwordModeLabel(account.passwordMode))}</span>
+        <span class="meta">${escapeHtml(formatDate(account.passwordUpdatedAt))}</span>
+      </div></td>
       <td>${escapeHtml(formatDate(account.lastLoginAt))}</td>
       <td>
         <div class="actions">
-          ${writable && (account.role !== 'admin' || state.me.role === 'owner') ? `
-            <button class="btn btn-small" type="button" data-access-account="${escapeHtml(account.id)}">授权网站</button>
+          ${writable && account.role === 'user' ? `<button class="btn btn-small" type="button" data-access-account="${escapeHtml(account.id)}">网站权限</button>` : ''}
+          ${roleWritable && account.role !== 'owner' ? `<button class="btn btn-small" type="button" data-change-role="${escapeHtml(account.id)}" data-next-role="${account.role === 'admin' ? 'user' : 'admin'}">${account.role === 'admin' ? '取消管理员' : '设为管理员'}</button>` : ''}
+          ${writable && account.role !== 'owner' && (account.role !== 'admin' || state.me.role === 'owner') ? `
             <button class="btn btn-small" type="button" data-toggle-account="${escapeHtml(account.id)}" data-next-enabled="${String(!account.enabled)}">${account.enabled ? '停用' : '启用'}</button>
-            <button class="btn btn-small" type="button" data-reset-account="${escapeHtml(account.id)}">重置密码</button>` : '<span class="meta">只读</span>'}
+            <button class="btn btn-small" type="button" data-reset-account="${escapeHtml(account.id)}">重置密码</button>` : ''}
+          ${account.role === 'owner' ? '<span class="meta">使用页首“修改我的密码”</span>' : ''}
+          ${!writable && !roleWritable ? '<span class="meta">只读</span>' : ''}
         </div>
       </td>
-    </tr>`).join('') : `<tr><td colspan="9"><div class="empty">${state.accounts.length ? '没有匹配的账号。' : '暂无可登录账号。'}</div></td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="6"><div class="empty">${state.accounts.length ? '没有匹配的账号。' : '暂无可登录账号。'}</div></td></tr>`;
   renderPager('#account-pager', 'accounts', pageInfo);
 }
 
@@ -257,13 +277,11 @@ function renderManagers() {
   const pageInfo = paginate(filtered, state.listViews.managers);
   $('#manager-rows').innerHTML = pageInfo.items.length ? pageInfo.items.map(member => `
     <tr>
-      <td><strong>${escapeHtml(member.name || '—')}</strong>${member.id === state.me?.id ? '（当前）' : ''}</td>
-      <td>${escapeHtml(member.email)}</td>
-      <td><span class="status-tag status-enabled">${escapeHtml(roleLabel(member.role))}</span></td>
+      <td class="identity-cell"><strong>${escapeHtml(member.name || member.owner || '—')}${member.id === state.me?.id ? '（当前）' : ''}</strong><span class="meta">${escapeHtml(member.email)}</span></td>
+      <td><span class="role-tag role-${escapeHtml(member.role)}">${escapeHtml(roleLabel(member.role))}</span></td>
       <td><span class="status-tag ${member.enabled ? 'status-enabled' : 'status-disabled'}">${member.enabled ? '正常' : '已停用'}</span></td>
       <td>${escapeHtml(formatDate(member.lastLoginAt))}</td>
-      <td>${member.source === 'owner' ? '系统固定' : '账号列表联动'}</td>
-    </tr>`).join('') : `<tr><td colspan="6"><div class="empty">${state.managers.length ? '没有匹配的管理员。' : '暂无管理员。'}</div></td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="4"><div class="empty">${state.managers.length ? '没有匹配的管理员。' : '暂无管理员。'}</div></td></tr>`;
   renderPager('#manager-pager', 'managers', pageInfo);
 }
 
@@ -309,11 +327,12 @@ function renderClientAccessOptions() {
   ], state.clientAccessView.query));
   const pageInfo = paginate(filtered, state.clientAccessView, DIALOG_PAGE_SIZE);
   $('#client-access-options').innerHTML = pageInfo.items.length ? pageInfo.items.map(account => {
-    const manageable = account.role !== 'admin' || state.me.role === 'owner';
+    const roleGranted = isManagementRole(account.role);
+    const manageable = !roleGranted && (account.role !== 'admin' || state.me.role === 'owner');
     return `
     <label class="check-item">
-      <input type="checkbox" name="account-client-access" value="${escapeHtml(account.id)}" ${state.clientAccessSelection.has(account.id) ? 'checked' : ''} ${manageable ? '' : 'disabled'}>
-      <span><strong>${escapeHtml(account.owner || '未填写持有人')}</strong><br><span class="meta">${escapeHtml(account.email)} · ${escapeHtml(roleLabel(account.role))}${(account.allowedClientIds || []).includes('*') ? ' · 当前授权全部网站' : ''}${account.enabled ? '' : ' · 账号已停用'}${manageable ? '' : ' · 仅终端拥有者可修改'}</span></span>
+      <input type="checkbox" name="account-client-access" value="${escapeHtml(account.id)}" ${roleGranted || state.clientAccessSelection.has(account.id) ? 'checked' : ''} ${manageable ? '' : 'disabled'}>
+      <span><strong>${escapeHtml(account.owner || '未填写持有人')}</strong><br><span class="meta">${escapeHtml(account.email)} · ${escapeHtml(roleLabel(account.role))}${roleGranted ? ' · 管理角色自动授权' : (account.allowedClientIds || []).includes('*') ? ' · 当前授权全部网站' : ''}${account.enabled ? '' : ' · 账号已停用'}${manageable || roleGranted ? '' : ' · 仅终端拥有者可修改'}</span></span>
     </label>`;
   }).join('') : '<div class="empty">没有匹配的账号。</div>';
   renderPager('#client-access-pager', 'client-access', pageInfo);
@@ -339,8 +358,7 @@ async function refreshAll() {
   state.permissions = meResult.permissions;
   state.accounts = accountResult.accounts;
   state.managers = managerResult.members.length ? managerResult.members : [
-    ...(state.me.role === 'owner' ? [{ ...state.me, source: 'owner' }] : []),
-    ...state.accounts.filter(account => account.role === 'admin').map(account => ({
+    ...state.accounts.filter(account => isManagementRole(account.role)).map(account => ({
       ...account, name: account.owner || account.email, source: 'account'
     }))
   ];
@@ -441,8 +459,8 @@ $('#admin-password-form').addEventListener('submit', async event => {
   const confirmPassword = $('#admin-confirm-password').value;
   const error = $('#admin-password-error');
   error.hidden = true;
-  if (newPassword.length < 10 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
-    error.textContent = '新密码需至少 10 位，且同时包含字母与数字。';
+  if (newPassword.length < 8 || !/[A-Za-z]/.test(newPassword) || !/\d/.test(newPassword)) {
+    error.textContent = '新密码需至少 8 位，且同时包含字母与数字。';
     error.hidden = false;
     return;
   }
@@ -456,7 +474,7 @@ $('#admin-password-form').addEventListener('submit', async event => {
   try {
     await adminApi.changeMyPassword(currentPassword, newPassword);
     $('#admin-password-dialog').close();
-    showToast('管理员密码已修改');
+    showToast('账号密码已修改，登录页同步生效');
     await refreshAll();
   } catch (requestError) {
     error.textContent = requestError.message;
@@ -509,21 +527,22 @@ $('#create-form').addEventListener('submit', async event => {
   }
 });
 
-$('#account-rows').addEventListener('change', async event => {
-  const select = event.target.closest('[data-account-role]');
-  if (!select) return;
-  select.disabled = true;
-  try {
-    await adminApi.setAccountRole(select.dataset.accountRole, select.value);
-    await refreshAll();
-    showToast(select.value === 'admin' ? '该账号已设为管理员' : '该账号已恢复为普通用户');
-  } catch (error) {
-    showToast(error.message);
-    await refreshAll().catch(() => null);
-  }
-});
-
 $('#account-rows').addEventListener('click', async event => {
+  const roleButton = event.target.closest('[data-change-role]');
+  if (roleButton) {
+    const account = state.accounts.find(item => item.id === roleButton.dataset.changeRole);
+    if (!account) return;
+    const nextRole = roleButton.dataset.nextRole;
+    state.pendingRoleChange = { accountId: account.id, nextRole };
+    $('#role-title').textContent = nextRole === 'admin' ? '授予管理员权限' : '取消管理员权限';
+    $('#role-message').innerHTML = nextRole === 'admin'
+      ? `确认将 <strong>${escapeHtml(account.owner)}（${escapeHtml(account.email)}）</strong> 设为管理员？该账号将可以进入管理页，并自动获得全部接入网站权限。`
+      : `确认取消 <strong>${escapeHtml(account.owner)}（${escapeHtml(account.email)}）</strong> 的管理员权限？该账号将恢复为普通用户，并恢复原有的网站授权。`;
+    $('#confirm-role').textContent = nextRole === 'admin' ? '确认授权' : '确认取消';
+    $('#role-dialog').showModal();
+    return;
+  }
+
   const accessButton = event.target.closest('[data-access-account]');
   if (accessButton) {
     const account = state.accounts.find(item => item.id === accessButton.dataset.accessAccount);
@@ -560,6 +579,24 @@ $('#account-rows').addEventListener('click', async event => {
     state.pendingResetId = account.id;
     $('#reset-email').textContent = `${account.owner}（${account.email}）`;
     $('#reset-dialog').showModal();
+  }
+});
+
+$('#confirm-role').addEventListener('click', async event => {
+  if (!state.pendingRoleChange) return;
+  const button = event.currentTarget;
+  const { accountId, nextRole } = state.pendingRoleChange;
+  setButtonLoading(button, true, '正在保存');
+  try {
+    await adminApi.setAccountRole(accountId, nextRole);
+    $('#role-dialog').close();
+    state.pendingRoleChange = null;
+    await refreshAll();
+    showToast(nextRole === 'admin' ? '管理员权限已生效，密码保持不变' : '管理员权限已取消，密码保持不变');
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setButtonLoading(button, false, '');
   }
 });
 
@@ -706,6 +743,7 @@ $('#client-access-form').addEventListener('submit', async event => {
   const clientId = state.pendingClientAccessId;
   if (!clientId) return;
   const changedAccounts = state.accounts.filter(account =>
+    !isManagementRole(account.role) &&
     state.clientAccessOriginal.has(account.id) !== state.clientAccessSelection.has(account.id)
   );
   const button = $('#client-access-submit');
@@ -767,6 +805,7 @@ document.addEventListener('click', event => {
     $('#credential-password').textContent = '—';
   }
   if (dialog.id === 'reset-dialog') state.pendingResetId = null;
+  if (dialog.id === 'role-dialog') state.pendingRoleChange = null;
   if (dialog.id === 'access-dialog') {
     state.pendingAccessId = null;
     state.accessSelection = new Set();
