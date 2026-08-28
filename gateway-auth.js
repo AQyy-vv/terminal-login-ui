@@ -15,12 +15,13 @@
       }
       .terminal-login-dialog {
         position: relative; width: min(430px, calc(100vw - 32px)); overflow: hidden;
-        background: #fff; border: 1px solid #8b8b8b; box-shadow: 0 16px 48px rgba(0,0,0,.24);
+        background: #fff; border: 1px solid #c9cdd2; border-radius: 14px;
+        box-shadow: 0 18px 52px rgba(18,22,27,.22);
       }
       .terminal-login-close {
         position: absolute; top: 8px; right: 8px; z-index: 2; width: 34px; height: 34px;
         display: grid; place-items: center; padding: 0; color: #333; background: #fff;
-        border: 1px solid #aaa; font: 22px/1 sans-serif; cursor: pointer;
+        border: 1px solid #b8bdc3; border-radius: 8px; font: 22px/1 sans-serif; cursor: pointer;
       }
       .terminal-login-frame { display: block; width: 100%; height: 500px; border: 0; background: #fff; }
       .terminal-login-status { padding: 32px; color: #333; font: 14px/1.55 sans-serif; text-align: center; }
