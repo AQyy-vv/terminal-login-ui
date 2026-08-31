@@ -560,7 +560,7 @@
 
     const api = {
       async login(payload) {
-        return request('/auth/login', { method: 'POST', body: payload });
+        return request('/auth/login', { method: 'POST', body: payload, timeoutMs: 8000 });
       },
 
       async sendResetEmail(payload) {
@@ -577,16 +577,30 @@
     };
 
     async function request(path, options = {}) {
-      const response = await fetch(`${CONFIG.API_BASE_URL}${path}`, {
-        method: options.method || 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        // 网关使用短期令牌而不是 Cookie；跨域携带 Cookie 会被浏览器拦截。
-        credentials: 'omit',
-        body: options.body ? JSON.stringify(options.body) : undefined
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || `请求失败（${response.status}）`);
-      return data;
+      const controller = new AbortController();
+      const timeoutMs = Math.max(3000, Math.min(20000, Number(options.timeoutMs) || 12000));
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetch(`${CONFIG.API_BASE_URL}${path}`, {
+          method: options.method || 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          // 网关使用短期令牌而不是 Cookie；跨域携带 Cookie 会被浏览器拦截。
+          credentials: 'omit',
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          signal: controller.signal
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.message || `请求失败（${response.status}）`);
+        return data;
+      } catch (error) {
+        if (error?.name === 'AbortError') {
+          throw new Error(`登录服务响应超过 ${Math.ceil(timeoutMs / 1000)} 秒，请重试；再次超时请联系管理员检查云函数。`);
+        }
+        if (error instanceof TypeError) throw new Error('无法连接登录服务，请检查网络后重试。');
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+      }
     }
 
     function escapeHtml(value = '') {
