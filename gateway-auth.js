@@ -4,6 +4,7 @@
   const STYLE_ID = 'terminal-login-sdk-style';
   const DEFAULT_REQUEST_TIMEOUT_MS = 12000;
   const DEFAULT_FRAME_TIMEOUT_MS = 15000;
+  const DEFAULT_REQUEST_ATTEMPTS = 2;
   let active = null;
 
   function normalizeTimeout(value, fallback) {
@@ -58,38 +59,81 @@
     active = null;
   }
 
-  async function requestJson(url, init = {}, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, controller = new AbortController()) {
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort('timeout');
-    }, timeoutMs);
-    try {
-      const response = await fetch(url, { ...init, signal: controller.signal });
-      const text = await response.text();
-      let data = {};
-      if (text) {
-        try { data = JSON.parse(text); }
-        catch (_) { throw new Error('终端服务返回了无法识别的数据。'); }
-      }
-      if (!response.ok) throw new Error(data.message || `终端请求失败（${response.status}）。`);
-      return data;
-    } catch (error) {
-      if (timedOut) throw new Error(`终端服务超过 ${Math.round(timeoutMs / 1000)} 秒未响应。`);
-      if (controller.signal.aborted) {
+  async function requestJson(
+    url,
+    init = {},
+    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+    parentController = new AbortController(),
+    attempts = DEFAULT_REQUEST_ATTEMPTS,
+    onRetry = null
+  ) {
+    let lastError;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      if (parentController.signal.aborted) {
         const cancelled = new Error('登录请求已取消。');
         cancelled.code = 'REQUEST_CANCELLED';
         throw cancelled;
       }
-      if (error instanceof TypeError) {
-        throw new Error(global.navigator?.onLine === false
-          ? '当前设备处于离线状态。'
-          : '无法连接终端登录服务，请检查网络或服务状态。');
+      const controller = new AbortController();
+      const cancelAttempt = () => controller.abort(parentController.signal.reason || 'cancelled');
+      parentController.signal.addEventListener('abort', cancelAttempt, { once: true });
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort('timeout');
+      }, timeoutMs);
+      try {
+        const response = await fetch(url, { ...init, signal: controller.signal });
+        const requestId = response.headers.get('X-Request-Id') || '';
+        const text = await response.text();
+        let data = {};
+        if (text) {
+          try { data = JSON.parse(text); }
+          catch (_) {
+            const invalid = new Error('终端服务返回了无法识别的数据。');
+            invalid.retryable = false;
+            throw invalid;
+          }
+        }
+        if (!response.ok) {
+          const failure = new Error(data.message || `终端请求失败（${response.status}）。`);
+          failure.status = response.status;
+          failure.requestId = requestId;
+          failure.retryable = [408, 425, 500, 502, 503, 504].includes(response.status);
+          throw failure;
+        }
+        return data;
+      } catch (rawError) {
+        if (parentController.signal.aborted) {
+          const cancelled = new Error('登录请求已取消。');
+          cancelled.code = 'REQUEST_CANCELLED';
+          throw cancelled;
+        }
+        let error = rawError;
+        if (timedOut) {
+          error = new Error(`终端服务单次请求超过 ${Math.round(timeoutMs / 1000)} 秒未响应。`);
+          error.retryable = true;
+        } else if (rawError instanceof TypeError) {
+          error = new Error(global.navigator?.onLine === false
+            ? '当前设备处于离线状态。'
+            : '无法连接终端登录服务，请检查网络或服务状态。');
+          error.retryable = global.navigator?.onLine !== false;
+        }
+        lastError = error;
+        if (attempt >= attempts || !error.retryable) break;
+        const delayMs = 450 * attempt + Math.floor(Math.random() * 250);
+        onRetry?.({ attempt, nextAttempt: attempt + 1, attempts, delayMs });
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      } finally {
+        clearTimeout(timer);
+        parentController.signal.removeEventListener('abort', cancelAttempt);
       }
-      throw error;
-    } finally {
-      clearTimeout(timer);
     }
+    if (attempts > 1 && lastError?.retryable) {
+      lastError.message = `${lastError.message} 已自动重试 ${attempts - 1} 次。`;
+    }
+    if (lastError?.requestId) lastError.message += ` 请求编号：${lastError.requestId}`;
+    throw lastError;
   }
 
   function showError(dialog, title, message, onRetry) {
@@ -193,7 +237,10 @@
         method: 'GET',
         mode: 'cors',
         credentials: 'omit'
-      }, requestTimeoutMs, controller);
+      }, requestTimeoutMs, controller, DEFAULT_REQUEST_ATTEMPTS, ({ nextAttempt, attempts }) => {
+        const status = dialog.querySelector('.terminal-login-status');
+        if (status) status.textContent = `连接较慢，正在进行第 ${nextAttempt}/${attempts} 次尝试…`;
+      });
 
       const loginUrl = new URL(ticketData.loginUrl, terminalOrigin);
       const frame = document.createElement('iframe');
@@ -240,7 +287,7 @@
       headers: { 'Content-Type': 'application/json' },
       credentials: 'omit',
       body: JSON.stringify({ token: options.token })
-    }, timeoutMs);
+    }, timeoutMs, new AbortController(), DEFAULT_REQUEST_ATTEMPTS);
   }
 
   global.TerminalLogin = Object.freeze({ open, close, introspect });

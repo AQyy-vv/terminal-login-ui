@@ -7,7 +7,9 @@ const CONFIG = {
   API_BASE_URL: LOCAL_PREVIEW
     ? `${location.origin}/api`
     : 'https://1447704904-cwscdb1mvx.ap-guangzhou.tencentscf.com/api',
-  REQUEST_TIMEOUT_MS: 15000
+  REQUEST_TIMEOUT_MS: 12000,
+  LOGIN_ATTEMPTS: 2,
+  READ_ATTEMPTS: 2
 };
 const state = {
   token: sessionStorage.getItem('terminalAdminToken') || '',
@@ -147,50 +149,83 @@ function clearAdminSession(message = '') {
 }
 
 async function request(path, options = {}, authenticated = true) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (authenticated && state.token) headers.Authorization = `Bearer ${state.token}`;
-  const controller = new AbortController();
   const timeoutMs = Number(options.timeoutMs) || CONFIG.REQUEST_TIMEOUT_MS;
-  const timer = setTimeout(() => controller.abort('timeout'), timeoutMs);
-  try {
-    const response = await fetch(`${CONFIG.API_BASE_URL}${path}`, {
-      method: options.method || 'GET',
-      headers,
-      credentials: 'omit',
-      signal: controller.signal,
-      body: options.body ? JSON.stringify(options.body) : undefined
-    });
-    const text = await response.text();
-    let data = {};
-    if (text) {
-      try { data = JSON.parse(text); }
-      catch (_) { throw new Error('管理服务返回了无法识别的数据，请稍后重试。'); }
+  const method = options.method || 'GET';
+  const attempts = Math.max(1, Number(options.attempts) || (method === 'GET' ? CONFIG.READ_ATTEMPTS : 1));
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (authenticated && state.token) headers.Authorization = `Bearer ${state.token}`;
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort('timeout');
+    }, timeoutMs);
+    try {
+      const response = await fetch(`${CONFIG.API_BASE_URL}${path}`, {
+        method,
+        headers,
+        credentials: 'omit',
+        signal: controller.signal,
+        body: options.body ? JSON.stringify(options.body) : undefined
+      });
+      const requestId = response.headers.get('X-Request-Id') || '';
+      const text = await response.text();
+      let data = {};
+      if (text) {
+        try { data = JSON.parse(text); }
+        catch (_) {
+          const invalid = new Error('管理服务返回了无法识别的数据，请稍后重试。');
+          invalid.retryable = false;
+          throw invalid;
+        }
+      }
+      if (!response.ok) {
+        if (authenticated && response.status === 401) clearAdminSession(data.message || '管理登录已失效。');
+        const failure = new Error(data.message || `请求失败（${response.status}）`);
+        failure.status = response.status;
+        failure.requestId = requestId;
+        failure.retryable = [408, 425, 500, 502, 503, 504].includes(response.status);
+        throw failure;
+      }
+      return data;
+    } catch (rawError) {
+      let error = rawError;
+      if (timedOut) {
+        error = new Error(`单次请求超过 ${Math.round(timeoutMs / 1000)} 秒未响应。`);
+        error.retryable = true;
+      } else if (rawError instanceof TypeError) {
+        error = new Error(navigator.onLine === false
+          ? '当前设备处于离线状态，请连接网络后重试。'
+          : '无法连接终端管理服务，请检查网络或服务状态。');
+        error.retryable = navigator.onLine !== false;
+      }
+      lastError = error;
+      if (attempt >= attempts || !error.retryable) break;
+      const delayMs = 450 * attempt + Math.floor(Math.random() * 250);
+      options.onRetry?.({ attempt, nextAttempt: attempt + 1, attempts, delayMs });
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    } finally {
+      clearTimeout(timer);
     }
-    if (!response.ok) {
-      if (authenticated && response.status === 401) clearAdminSession(data.message || '管理登录已失效。');
-      const requestError = new Error(data.message || `请求失败（${response.status}）`);
-      requestError.status = response.status;
-      throw requestError;
-    }
-    return data;
-  } catch (error) {
-    if (controller.signal.aborted) {
-      throw new Error(`请求超过 ${Math.round(timeoutMs / 1000)} 秒未响应，请检查网络后重试。`);
-    }
-    if (error instanceof TypeError) {
-      throw new Error(navigator.onLine === false
-        ? '当前设备处于离线状态，请连接网络后重试。'
-        : '无法连接终端管理服务，请检查网络或服务状态。');
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
   }
+  if (attempts > 1 && lastError?.retryable) {
+    lastError.message = `${lastError.message} 已自动重试 ${attempts - 1} 次。`;
+  }
+  if (lastError?.requestId) lastError.message += ` 请求编号：${lastError.requestId}`;
+  throw lastError;
 }
 
 const adminApi = {
   login(email, password) {
-    return request('/admin/login', { method: 'POST', body: { email, password } }, false);
+    return request('/admin/login', {
+      method: 'POST', body: { email, password }, attempts: CONFIG.LOGIN_ATTEMPTS,
+      onRetry: ({ nextAttempt, attempts }) => {
+        $('#admin-key-error').textContent = `连接较慢，正在进行第 ${nextAttempt}/${attempts} 次尝试…`;
+        $('#admin-key-error').hidden = false;
+      }
+    }, false);
   },
   bootstrap() { return request('/admin/bootstrap'); },
   me() { return request('/admin/me'); },

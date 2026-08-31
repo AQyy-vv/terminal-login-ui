@@ -200,6 +200,7 @@
 
     .alert.is-visible { display: block; }
     .alert.success { color: var(--success); }
+    .alert.info { color: #315b74; background: #f5fafc; }
 
     .password-rules {
       margin: -7px 0 0;
@@ -556,6 +557,7 @@
         ? `${location.origin}/api`
         : 'https://1447704904-cwscdb1mvx.ap-guangzhou.tencentscf.com/api',
       REQUEST_TIMEOUT_MS: 12000,
+      LOGIN_ATTEMPTS: 2,
       FEISHU_MAIL_URL: 'https://mail.feishu.cn/'
     };
 
@@ -572,8 +574,10 @@
     const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
     const api = {
-      async login(payload) {
-        return request('/auth/login', { method: 'POST', body: payload });
+      async login(payload, onRetry) {
+        return request('/auth/login', {
+          method: 'POST', body: payload, attempts: CONFIG.LOGIN_ATTEMPTS, onRetry
+        });
       },
 
       async sendResetEmail(payload) {
@@ -589,40 +593,74 @@
       }
     };
 
+    function retryableStatus(status) {
+      // 429 表示服务端已限流，自动重试只会延长锁定时间，因此交给用户稍后手动重试。
+      return [408, 425, 500, 502, 503, 504].includes(Number(status));
+    }
+
     async function request(path, options = {}) {
-      const controller = new AbortController();
       const timeoutMs = Number(options.timeoutMs) || CONFIG.REQUEST_TIMEOUT_MS;
-      const timer = setTimeout(() => controller.abort('timeout'), timeoutMs);
-      try {
-        const response = await fetch(`${CONFIG.API_BASE_URL}${path}`, {
-          method: options.method || 'GET',
-          headers: { 'Content-Type': 'application/json' },
-          // 网关使用短期令牌而不是 Cookie；跨域携带 Cookie 会被浏览器拦截。
-          credentials: 'omit',
-          signal: controller.signal,
-          body: options.body ? JSON.stringify(options.body) : undefined
-        });
-        const text = await response.text();
-        let data = {};
-        if (text) {
-          try { data = JSON.parse(text); }
-          catch (_) { throw new Error('登录服务返回了无法识别的数据，请稍后重试。'); }
+      const attempts = Math.max(1, Number(options.attempts) || 1);
+      let lastError;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        const controller = new AbortController();
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          controller.abort('timeout');
+        }, timeoutMs);
+        try {
+          const response = await fetch(`${CONFIG.API_BASE_URL}${path}`, {
+            method: options.method || 'GET',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'omit',
+            signal: controller.signal,
+            body: options.body ? JSON.stringify(options.body) : undefined
+          });
+          const requestId = response.headers.get('X-Request-Id') || '';
+          const text = await response.text();
+          let data = {};
+          if (text) {
+            try { data = JSON.parse(text); }
+            catch (_) {
+              const invalid = new Error('登录服务返回了无法识别的数据，请稍后重试。');
+              invalid.retryable = false;
+              throw invalid;
+            }
+          }
+          if (!response.ok) {
+            const failure = new Error(data.message || `请求失败（${response.status}）`);
+            failure.status = response.status;
+            failure.requestId = requestId;
+            failure.retryable = retryableStatus(response.status) && response.status !== 429;
+            throw failure;
+          }
+          return data;
+        } catch (rawError) {
+          let error = rawError;
+          if (timedOut) {
+            error = new Error(`单次请求超过 ${Math.round(timeoutMs / 1000)} 秒未响应。`);
+            error.retryable = true;
+          } else if (rawError instanceof TypeError) {
+            error = new Error(navigator.onLine === false
+              ? '当前设备处于离线状态，请连接网络后重试。'
+              : '无法连接终端登录服务，请检查网络或服务状态。');
+            error.retryable = navigator.onLine !== false;
+          }
+          lastError = error;
+          if (attempt >= attempts || !error.retryable) break;
+          const delayMs = 450 * attempt + Math.floor(Math.random() * 250);
+          options.onRetry?.({ attempt, nextAttempt: attempt + 1, attempts, delayMs });
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        } finally {
+          clearTimeout(timer);
         }
-        if (!response.ok) throw new Error(data.message || `请求失败（${response.status}）`);
-        return data;
-      } catch (error) {
-        if (controller.signal.aborted) {
-          throw new Error(`请求超过 ${Math.round(timeoutMs / 1000)} 秒未响应，请检查网络后重试。`);
-        }
-        if (error instanceof TypeError) {
-          throw new Error(navigator.onLine === false
-            ? '当前设备处于离线状态，请连接网络后重试。'
-            : '无法连接终端登录服务，请检查网络或服务状态。');
-        }
-        throw error;
-      } finally {
-        clearTimeout(timer);
       }
+      if (attempts > 1 && lastError?.retryable) {
+        lastError.message = `${lastError.message} 已自动重试 ${attempts - 1} 次，请稍后再试。`;
+      }
+      if (lastError?.requestId) lastError.message += ` 请求编号：${lastError.requestId}`;
+      throw lastError;
     }
 
     function escapeHtml(value = '') {
@@ -679,7 +717,7 @@
     function setAlert(id, message = '', type = 'error') {
       const alert = document.getElementById(id);
       alert.textContent = message;
-      alert.className = `alert${message ? ' is-visible' : ''}${type === 'success' ? ' success' : ''}`;
+      alert.className = `alert${message ? ' is-visible' : ''}${type === 'success' ? ' success' : type === 'info' ? ' info' : ''}`;
     }
 
     function setButtonLoading(button, loading, label) {
@@ -801,7 +839,14 @@
       const button = $('#login-submit');
       setButtonLoading(button, true, '正在登录');
       try {
-        const result = await api.login({ email, password, ...getAuthRequest() });
+        const result = await api.login(
+          { email, password, ...getAuthRequest() },
+          ({ nextAttempt, attempts }) => setAlert(
+            'login-alert',
+            `连接较慢，正在进行第 ${nextAttempt}/${attempts} 次尝试…`,
+            'info'
+          )
+        );
         if (isEmbedded() && window.parent !== window) {
           // targetOrigin 由终端服务根据嵌入票据返回，令牌不会广播给其他来源。
           window.parent.postMessage({
