@@ -168,7 +168,9 @@ async function request(path, options = {}, authenticated = true) {
     }
     if (!response.ok) {
       if (authenticated && response.status === 401) clearAdminSession(data.message || '管理登录已失效。');
-      throw new Error(data.message || `请求失败（${response.status}）`);
+      const requestError = new Error(data.message || `请求失败（${response.status}）`);
+      requestError.status = response.status;
+      throw requestError;
     }
     return data;
   } catch (error) {
@@ -191,7 +193,10 @@ const adminApi = {
     return request('/admin/login', { method: 'POST', body: { email, password } }, false);
   },
   bootstrap() { return request('/admin/bootstrap'); },
+  me() { return request('/admin/me'); },
   logout() { return request('/admin/logout', { method: 'POST' }); },
+  listManagers() { return request('/admin/management-members'); },
+  listAccounts() { return request('/admin/accounts'); },
   createAccount(email, owner) { return request('/admin/accounts', { method: 'POST', body: { email, owner } }); },
   setAccountEnabled(id, enabled) {
     return request(`/admin/accounts/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { enabled } });
@@ -203,13 +208,15 @@ const adminApi = {
     return request(`/admin/accounts/${encodeURIComponent(id)}/access`, { method: 'PATCH', body: { clientIds } });
   },
   resetAccountPassword(id) { return request(`/admin/accounts/${encodeURIComponent(id)}/reset`, { method: 'POST' }); },
+  listClients() { return request('/admin/clients'); },
   createClient(payload) { return request('/admin/clients', { method: 'POST', body: payload }); },
   setClientEnabled(id, enabled) {
     return request(`/admin/clients/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { enabled } });
   },
   changeMyPassword(currentPassword, newPassword) {
     return request('/admin/password/change', { method: 'POST', body: { currentPassword, newPassword } });
-  }
+  },
+  auditLogs() { return request('/admin/audit-logs?limit=200'); }
 };
 
 function accountAccessLabel(account) {
@@ -368,7 +375,28 @@ function renderAll() {
 
 async function refreshAll() {
   // 首屏数据由一次快照请求返回，避免 SCF/COS 串行读取导致部分请求超时。
-  const result = await adminApi.bootstrap();
+  let result;
+  try {
+    result = await adminApi.bootstrap();
+  } catch (error) {
+    if (error.status !== 404) throw error;
+    // 发布期间兼容尚未升级的云函数；后端部署完成后不会进入此分支。
+    const [meResult, accountResult, managerResult, clientResult, auditResult] = await Promise.all([
+      adminApi.me(),
+      adminApi.listAccounts(),
+      adminApi.listManagers(),
+      adminApi.listClients(),
+      adminApi.auditLogs()
+    ]);
+    result = {
+      admin: meResult.admin,
+      permissions: meResult.permissions,
+      accounts: accountResult.accounts,
+      members: managerResult.members,
+      clients: clientResult.clients,
+      logs: auditResult.logs
+    };
+  }
   state.me = result.admin;
   state.permissions = result.permissions;
   state.accounts = result.accounts || [];
