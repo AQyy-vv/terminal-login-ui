@@ -3,7 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
   <title>终端账号管理｜通用登录网关</title>
+  <!-- GitHub Pages 无法自定义 frame-ancestors 响应头，先隐藏再仅允许顶层窗口显示。 -->
+  <style id="frame-guard">html { display: none; }</style>
+  <script>
+    if (window.self === window.top) {
+      document.getElementById('frame-guard').remove();
+    } else {
+      window.stop();
+    }
+  </script>
   <style>
     :root {
       --page: #f2f3f5;

@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- 嵌入票据位于查询参数中，不允许通过 Referer 泄露给外站。 -->
+  <meta name="referrer" content="no-referrer">
   <title>登录｜通用登录网关</title>
   <script>
     if (new URLSearchParams(location.search).get('embed') === '1') document.documentElement.classList.add('is-embedded');
@@ -238,6 +240,16 @@
       list-style: none;
     }
 
+    .empty-state {
+      margin: 0;
+      padding: 18px;
+      color: var(--muted);
+      text-align: center;
+      background: var(--surface-2);
+      border: 1px solid var(--line-light);
+      border-radius: 8px;
+    }
+
     .app-item {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -423,7 +435,7 @@
       <div class="success-mark" aria-hidden="true">✓</div>
       <header class="view-header">
         <h2 id="success-title">登录成功</h2>
-        <p>请选择要访问的业务系统。</p>
+        <p id="success-subtitle">身份验证已完成。</p>
       </header>
 
       <div class="account-strip">
@@ -450,7 +462,7 @@
       <button class="back-link" type="button" data-route="login">← 返回登录</button>
       <header class="view-header">
         <h2 id="forgot-title">忘记密码</h2>
-        <p>验证飞书邮箱后，系统将发送密码重置邮件。</p>
+        <p>系统将通过已配置的邮箱服务发送密码重置邮件。</p>
       </header>
 
       <div class="alert" id="forgot-alert" role="alert"></div>
@@ -459,7 +471,7 @@
         <div class="field">
           <label class="required" for="forgot-email">账号</label>
           <input id="forgot-email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="name@company.com" required>
-          <p class="field-hint">重置链接仅发送至该飞书邮箱。</p>
+          <p class="field-hint">邮件服务未配置时，请联系终端管理员重置。</p>
           <p class="field-error" id="forgot-email-error" role="alert" hidden></p>
         </div>
         <button class="btn btn-primary btn-block" id="forgot-submit" type="submit">发送重置邮件</button>
@@ -537,22 +549,23 @@
     'use strict';
 
     /* 所有身份判断都交给本机 API，嵌入方无法在前端绕过终端白名单。 */
+    const LOCAL_PREVIEW = ['127.0.0.1', 'localhost'].includes(location.hostname);
     const CONFIG = {
       // 页面在 GitHub Pages，身份判断和数据读写仍全部交给腾讯云函数。
-      API_BASE_URL: 'https://1447704904-cwscdb1mvx.ap-guangzhou.tencentscf.com/api',
-      FEISHU_MAIL_URL: 'https://mail.feishu.cn/',
-      MOUNTED_APPS: [
-        { name: 'OA 工作台', url: 'https://oa.example.com/home' },
-        { name: '数据分析平台', url: 'https://data.example.com/dashboard' },
-        { name: '内容管理后台', url: 'https://cms.example.com/' }
-      ]
+      API_BASE_URL: LOCAL_PREVIEW
+        ? `${location.origin}/api`
+        : 'https://1447704904-cwscdb1mvx.ap-guangzhou.tencentscf.com/api',
+      REQUEST_TIMEOUT_MS: 12000,
+      FEISHU_MAIL_URL: 'https://mail.feishu.cn/'
     };
 
     const state = {
       currentUser: null,
+      mountedApps: [],
       lastRouteBeforeChange: 'login',
       modalConfirm: null,
-      lastFocusedElement: null
+      lastFocusedElement: null,
+      previousBodyOverflow: ''
     };
 
     const $ = (selector, root = document) => root.querySelector(selector);
@@ -560,7 +573,7 @@
 
     const api = {
       async login(payload) {
-        return request('/auth/login', { method: 'POST', body: payload, timeoutMs: 8000 });
+        return request('/auth/login', { method: 'POST', body: payload });
       },
 
       async sendResetEmail(payload) {
@@ -578,28 +591,37 @@
 
     async function request(path, options = {}) {
       const controller = new AbortController();
-      const timeoutMs = Math.max(3000, Math.min(20000, Number(options.timeoutMs) || 12000));
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      const timeoutMs = Number(options.timeoutMs) || CONFIG.REQUEST_TIMEOUT_MS;
+      const timer = setTimeout(() => controller.abort('timeout'), timeoutMs);
       try {
         const response = await fetch(`${CONFIG.API_BASE_URL}${path}`, {
           method: options.method || 'GET',
           headers: { 'Content-Type': 'application/json' },
           // 网关使用短期令牌而不是 Cookie；跨域携带 Cookie 会被浏览器拦截。
           credentials: 'omit',
-          body: options.body ? JSON.stringify(options.body) : undefined,
-          signal: controller.signal
+          signal: controller.signal,
+          body: options.body ? JSON.stringify(options.body) : undefined
         });
-        const data = await response.json().catch(() => ({}));
+        const text = await response.text();
+        let data = {};
+        if (text) {
+          try { data = JSON.parse(text); }
+          catch (_) { throw new Error('登录服务返回了无法识别的数据，请稍后重试。'); }
+        }
         if (!response.ok) throw new Error(data.message || `请求失败（${response.status}）`);
         return data;
       } catch (error) {
-        if (error?.name === 'AbortError') {
-          throw new Error(`登录服务响应超过 ${Math.ceil(timeoutMs / 1000)} 秒，请重试；再次超时请联系管理员检查云函数。`);
+        if (controller.signal.aborted) {
+          throw new Error(`请求超过 ${Math.round(timeoutMs / 1000)} 秒未响应，请检查网络后重试。`);
         }
-        if (error instanceof TypeError) throw new Error('无法连接登录服务，请检查网络后重试。');
+        if (error instanceof TypeError) {
+          throw new Error(navigator.onLine === false
+            ? '当前设备处于离线状态，请连接网络后重试。'
+            : '无法连接终端登录服务，请检查网络或服务状态。');
+        }
         throw error;
       } finally {
-        clearTimeout(timeout);
+        clearTimeout(timer);
       }
     }
 
@@ -614,9 +636,6 @@
     function getAuthRequest() {
       const params = new URLSearchParams(location.search);
       return {
-        clientId: params.get('client_id') || 'demo-client',
-        redirectUri: params.get('redirect_uri') || '',
-        requestState: params.get('state') || '',
         requestOrigin: location.origin,
         embedTicket: params.get('ticket') || ''
       };
@@ -714,12 +733,7 @@
     }
 
     function getMountedApps() {
-      const apps = [...CONFIG.MOUNTED_APPS];
-      const params = new URLSearchParams(location.search);
-      const requestedUrl = getSafeHttpUrl(params.get('redirect_uri'));
-      if (requestedUrl) {
-        apps.unshift({ name: params.get('app_name') || '当前接入系统', url: requestedUrl, requested: true });
-      }
+      const apps = [...state.mountedApps];
       const unique = new Map();
       apps.forEach(app => {
         const safeUrl = getSafeHttpUrl(app.url);
@@ -733,18 +747,20 @@
       $('#success-time').textContent = state.currentUser?.loginAt
         ? new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(state.currentUser.loginAt))
         : '—';
-      $('#mounted-apps').innerHTML = `
+      const apps = getMountedApps();
+      $('#success-subtitle').textContent = apps.length ? '请选择要访问的业务系统。' : '身份验证已完成。';
+      $('#mounted-apps').innerHTML = apps.length ? `
         <ul class="app-list">
-          ${getMountedApps().map((app, index) => `
+          ${apps.map((app, index) => `
             <li class="app-item">
               <div>
-                <p><strong>${escapeHtml(app.name)}</strong>${app.requested ? ' · 本次请求' : ''}</p>
+                <p><strong>${escapeHtml(app.name)}</strong></p>
                 <p class="app-url">${escapeHtml(app.url)}</p>
               </div>
               <button class="btn${index === 0 ? ' btn-primary' : ''}" type="button" data-open-app="${index}">前往</button>
             </li>
           `).join('')}
-        </ul>`;
+        </ul>` : '<p class="empty-state">暂无已配置的业务系统。</p>';
     }
 
     function openModal({ title, body, actions = [], onConfirm = null }) {
@@ -758,6 +774,7 @@
         </button>`).join('');
       $('#modal-layer').classList.add('is-open');
       $('#modal-layer').setAttribute('aria-hidden', 'false');
+      state.previousBodyOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
       requestAnimationFrame(() => $('#modal-actions .btn')?.focus());
     }
@@ -765,7 +782,7 @@
     function closeModal() {
       $('#modal-layer').classList.remove('is-open');
       $('#modal-layer').setAttribute('aria-hidden', 'true');
-      document.body.style.overflow = '';
+      document.body.style.overflow = state.previousBodyOverflow;
       state.modalConfirm = null;
       state.lastFocusedElement?.focus();
     }
@@ -799,7 +816,11 @@
           return;
         }
         state.currentUser = { ...result.user, loginAt: result.loginAt };
-        sessionStorage.setItem('gatewaySession', JSON.stringify(state.currentUser));
+        state.mountedApps = Array.isArray(result.mountedApps) ? result.mountedApps : [];
+        sessionStorage.setItem('gatewaySession', JSON.stringify({
+          user: state.currentUser,
+          mountedApps: state.mountedApps
+        }));
         navigate('success');
       } catch (error) {
         setAlert('login-alert', error.message || '登录失败，请稍后重试。');
@@ -911,7 +932,7 @@
         const app = getMountedApps()[Number(appButton.dataset.openApp)];
         openModal({
           title: '确认前往业务系统',
-          body: `<p>网关将向以下地址回传一次性授权结果：</p><p class="modal-url">${escapeHtml(app.url)}</p>`,
+          body: `<p>即将离开登录网关并打开以下业务系统：</p><p class="modal-url">${escapeHtml(app.url)}</p><p class="helper">如该系统尚未建立会话，仍会按其接入流程完成登录。</p>`,
           actions: [
             { id: 'cancel', label: '取消' },
             { id: 'confirm', label: '确认前往', primary: true }
@@ -927,6 +948,7 @@
     $('#logout-button').addEventListener('click', async () => {
       await api.logout().catch(() => null);
       state.currentUser = null;
+      state.mountedApps = [];
       sessionStorage.removeItem('gatewaySession');
       $('#login-password').value = '';
       navigate('login');
@@ -948,14 +970,32 @@
     });
 
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && $('#modal-layer').classList.contains('is-open')) closeModal();
+      if (!$('#modal-layer').classList.contains('is-open')) return;
+      if (event.key === 'Escape') return closeModal();
+      if (event.key !== 'Tab') return;
+      const focusable = $$('#modal-layer button:not([disabled]), #modal-layer [href], #modal-layer input:not([disabled])');
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     });
 
     window.addEventListener('hashchange', renderRoute);
 
     try {
       const session = sessionStorage.getItem('gatewaySession');
-      if (session) state.currentUser = JSON.parse(session);
+      if (session) {
+        const parsed = JSON.parse(session);
+        // 兼容旧版仅保存用户对象的会话格式。
+        state.currentUser = parsed.user || parsed;
+        state.mountedApps = Array.isArray(parsed.mountedApps) ? parsed.mountedApps : [];
+      }
     } catch (_) {
       sessionStorage.removeItem('gatewaySession');
     }

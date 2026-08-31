@@ -6,7 +6,8 @@ const LOCAL_PREVIEW = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const CONFIG = {
   API_BASE_URL: LOCAL_PREVIEW
     ? `${location.origin}/api`
-    : 'https://1447704904-cwscdb1mvx.ap-guangzhou.tencentscf.com/api'
+    : 'https://1447704904-cwscdb1mvx.ap-guangzhou.tencentscf.com/api',
+  REQUEST_TIMEOUT_MS: 15000
 };
 const state = {
   token: sessionStorage.getItem('terminalAdminToken') || '',
@@ -148,28 +149,49 @@ function clearAdminSession(message = '') {
 async function request(path, options = {}, authenticated = true) {
   const headers = { 'Content-Type': 'application/json' };
   if (authenticated && state.token) headers.Authorization = `Bearer ${state.token}`;
-  const response = await fetch(`${CONFIG.API_BASE_URL}${path}`, {
-    method: options.method || 'GET',
-    headers,
-    credentials: 'same-origin',
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    if (authenticated && response.status === 401) clearAdminSession(data.message || '管理员登录已失效。');
-    throw new Error(data.message || `请求失败（${response.status}）`);
+  const controller = new AbortController();
+  const timeoutMs = Number(options.timeoutMs) || CONFIG.REQUEST_TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort('timeout'), timeoutMs);
+  try {
+    const response = await fetch(`${CONFIG.API_BASE_URL}${path}`, {
+      method: options.method || 'GET',
+      headers,
+      credentials: 'omit',
+      signal: controller.signal,
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+    const text = await response.text();
+    let data = {};
+    if (text) {
+      try { data = JSON.parse(text); }
+      catch (_) { throw new Error('管理服务返回了无法识别的数据，请稍后重试。'); }
+    }
+    if (!response.ok) {
+      if (authenticated && response.status === 401) clearAdminSession(data.message || '管理登录已失效。');
+      throw new Error(data.message || `请求失败（${response.status}）`);
+    }
+    return data;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`请求超过 ${Math.round(timeoutMs / 1000)} 秒未响应，请检查网络后重试。`);
+    }
+    if (error instanceof TypeError) {
+      throw new Error(navigator.onLine === false
+        ? '当前设备处于离线状态，请连接网络后重试。'
+        : '无法连接终端管理服务，请检查网络或服务状态。');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-  return data;
 }
 
 const adminApi = {
   login(email, password) {
     return request('/admin/login', { method: 'POST', body: { email, password } }, false);
   },
-  me() { return request('/admin/me'); },
+  bootstrap() { return request('/admin/bootstrap'); },
   logout() { return request('/admin/logout', { method: 'POST' }); },
-  listManagers() { return request('/admin/management-members'); },
-  listAccounts() { return request('/admin/accounts'); },
   createAccount(email, owner) { return request('/admin/accounts', { method: 'POST', body: { email, owner } }); },
   setAccountEnabled(id, enabled) {
     return request(`/admin/accounts/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { enabled } });
@@ -181,15 +203,13 @@ const adminApi = {
     return request(`/admin/accounts/${encodeURIComponent(id)}/access`, { method: 'PATCH', body: { clientIds } });
   },
   resetAccountPassword(id) { return request(`/admin/accounts/${encodeURIComponent(id)}/reset`, { method: 'POST' }); },
-  listClients() { return request('/admin/clients'); },
   createClient(payload) { return request('/admin/clients', { method: 'POST', body: payload }); },
   setClientEnabled(id, enabled) {
     return request(`/admin/clients/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: { enabled } });
   },
   changeMyPassword(currentPassword, newPassword) {
     return request('/admin/password/change', { method: 'POST', body: { currentPassword, newPassword } });
-  },
-  auditLogs() { return request('/admin/audit-logs?limit=200'); }
+  }
 };
 
 function accountAccessLabel(account) {
@@ -347,23 +367,14 @@ function renderAll() {
 }
 
 async function refreshAll() {
-  const [meResult, accountResult, managerResult, clientResult, auditResult] = await Promise.all([
-    adminApi.me(),
-    adminApi.listAccounts(),
-    adminApi.listManagers().catch(() => ({ members: [] })),
-    adminApi.listClients(),
-    adminApi.auditLogs()
-  ]);
-  state.me = meResult.admin;
-  state.permissions = meResult.permissions;
-  state.accounts = accountResult.accounts;
-  state.managers = managerResult.members.length ? managerResult.members : [
-    ...state.accounts.filter(account => isManagementRole(account.role)).map(account => ({
-      ...account, name: account.owner || account.email, source: 'account'
-    }))
-  ];
-  state.clients = clientResult.clients;
-  state.auditLogs = auditResult.logs;
+  // 首屏数据由一次快照请求返回，避免 SCF/COS 串行读取导致部分请求超时。
+  const result = await adminApi.bootstrap();
+  state.me = result.admin;
+  state.permissions = result.permissions;
+  state.accounts = result.accounts || [];
+  state.managers = result.members || [];
+  state.clients = result.clients || [];
+  state.auditLogs = result.logs || [];
   renderAll();
 }
 
